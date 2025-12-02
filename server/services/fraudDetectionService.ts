@@ -13,8 +13,15 @@ import type { ChequeData } from '../../shared/types.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Path to Python fraud prediction script
-const FRAUD_PREDICTION_SCRIPT = path.join(__dirname, '..', 'ml', 'fraud_prediction.py');
+// Get project root - go up from dist/server/services or server/services to project root
+// Then navigate to server/ml/fraud_prediction.py
+const PROJECT_ROOT = process.cwd(); // This should be the project root when running npm scripts
+
+// Path to Python fraud prediction script (using absolute path from project root)
+const FRAUD_PREDICTION_SCRIPT = path.join(PROJECT_ROOT, 'server', 'ml', 'fraud_prediction.py');
+
+// Python executable - use conda environment path or fallback to system python
+const PYTHON_EXECUTABLE = process.env.PYTHON_PATH ||   'python3';
 
 // ============================================================
 // TYPES
@@ -54,8 +61,13 @@ export interface FraudDetectionResult {
  */
 async function executePythonScript(inputData: object): Promise<FraudDetectionResult> {
   return new Promise((resolve, reject) => {
-    const pythonProcess = spawn('python3', [FRAUD_PREDICTION_SCRIPT], {
+    console.log(`[FraudDetection] Project root: ${PROJECT_ROOT}`);
+    console.log(`[FraudDetection] Using Python: ${PYTHON_EXECUTABLE}`);
+    console.log(`[FraudDetection] Script path: ${FRAUD_PREDICTION_SCRIPT}`);
+    
+    const pythonProcess = spawn(PYTHON_EXECUTABLE, [FRAUD_PREDICTION_SCRIPT], {
       cwd: path.dirname(FRAUD_PREDICTION_SCRIPT),
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
     });
 
     let stdout = '';
@@ -135,8 +147,9 @@ async function executePythonScript(inputData: object): Promise<FraudDetectionRes
  */
 export async function checkModelStatus(): Promise<{ modelAvailable: boolean; error?: string }> {
   return new Promise((resolve) => {
-    const pythonProcess = spawn('python3', [FRAUD_PREDICTION_SCRIPT, '--check'], {
+    const pythonProcess = spawn(PYTHON_EXECUTABLE, [FRAUD_PREDICTION_SCRIPT, '--check'], {
       cwd: path.dirname(FRAUD_PREDICTION_SCRIPT),
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
     });
 
     let stdout = '';
