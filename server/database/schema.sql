@@ -171,7 +171,7 @@ CREATE TABLE cheques (
     amount                  NUMERIC(18,2) NOT NULL,
     amount_in_words         VARCHAR(200),
     issue_date              DATE NOT NULL,
-    micr_code               VARCHAR(30),
+    micr_code               VARCHAR(50),
     
     -- Images
     cheque_image_path       VARCHAR(255),

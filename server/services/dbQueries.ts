@@ -1,4 +1,4 @@
-import pool from './db.ts';
+import pool from './db.js';
 import fs from 'fs/promises';
 import path from 'path';
 
