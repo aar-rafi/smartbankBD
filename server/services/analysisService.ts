@@ -52,8 +52,9 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
 
         // 2. Run Python Script for signature extraction
         const scriptPath = path.resolve("ml/signature_extract.py");
-        const pythonPath = path.resolve(process.env.PYTHON_PATH || "database/venv/bin/python");
-        const command = `${pythonPath} "${scriptPath}" "${inputPath}" "${outputPath}" --json`;
+        // Use the configured python executable or fallback to venv
+        const pythonPath = process.env.PYTHON_PATH || path.resolve("database/venv/bin/python");
+        const command = `"${pythonPath}" "${scriptPath}" "${inputPath}" "${outputPath}" --json`;
 
         console.log("Running Python script:", command);
         const { stdout, stderr } = await execPromise(command);

@@ -41,10 +41,44 @@ export interface ValidationResult {
   riskLevel?: string;
 }
 
+// ============================================================
+// FRAUD DETECTION TYPES
+// ============================================================
+
+export interface RiskFactor {
+  factor: string;
+  severity: 'low' | 'medium' | 'high';
+  description: string;
+  value: string | number | boolean;
+}
+
+export interface FeatureContribution {
+  name: string;
+  value: string | number;
+  impact: 'normal' | 'medium' | 'high';
+}
+
+export interface FraudDetectionResult {
+  modelAvailable: boolean;
+  dataAvailable: boolean;
+  profileFound: boolean;
+  fraudScore: number | null;
+  anomalyScore?: number;
+  riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
+  decision?: 'approve' | 'review' | 'reject';
+  confidence?: number;
+  riskFactors: RiskFactor[];
+  featureContributions: FeatureContribution[];
+  explanations?: string[];
+  recommendation: string | null;
+  error?: string;
+}
+
 export interface AnalysisState {
   status: 'idle' | 'analyzing' | 'validating' | 'success' | 'error';
   data: ChequeData | null;
   validation: ValidationResult | null;
+  fraudDetection: FraudDetectionResult | null;
   error: string | null;
   imagePreview: string | null;
 }
