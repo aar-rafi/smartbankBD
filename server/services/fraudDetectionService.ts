@@ -2,26 +2,14 @@
  * Fraud Detection Service
  * ========================
  * Integrates with the Python ML model for anomaly-based fraud detection.
- * Calls fraud_prediction.py via subprocess or direct Python execution.
+ * Calls fraud_prediction.py Flask API server via HTTP.
  */
 
-import { spawn } from 'child_process';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import type { ChequeData } from '../../shared/types.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Get project root - go up from dist/server/services or server/services to project root
-// Then navigate to server/ml/fraud_prediction.py
-const PROJECT_ROOT = process.cwd(); // This should be the project root when running npm scripts
-
-// Path to Python fraud prediction script (using absolute path from project root)
-const FRAUD_PREDICTION_SCRIPT = path.join(PROJECT_ROOT, 'server', 'ml', 'fraud_prediction.py');
-
-// Python executable - use conda environment path or fallback to system python
-const PYTHON_EXECUTABLE = process.env.PYTHON_PATH ||   'python3';
+// Fraud Detection ML Service Configuration
+const FRAUD_SERVICE_URL = process.env.FRAUD_SERVICE_URL || 'http://localhost:5002';
+const FRAUD_SERVICE_TIMEOUT = parseInt(process.env.FRAUD_SERVICE_TIMEOUT || '15000', 10);
 
 // ============================================================
 // TYPES
@@ -53,73 +41,34 @@ export interface FraudDetectionResult {
 }
 
 // ============================================================
-// PYTHON EXECUTION HELPER
+// PYTHON EXECUTION HELPER (via HTTP to Flask Server)
 // ============================================================
 
 /**
- * Execute Python fraud prediction script with given data
+ * Execute Python fraud prediction via Flask API
  */
 async function executePythonScript(inputData: object): Promise<FraudDetectionResult> {
-  return new Promise((resolve, reject) => {
-    console.log(`[FraudDetection] Project root: ${PROJECT_ROOT}`);
-    console.log(`[FraudDetection] Using Python: ${PYTHON_EXECUTABLE}`);
-    console.log(`[FraudDetection] Script path: ${FRAUD_PREDICTION_SCRIPT}`);
+  try {
+    console.log('[FraudDetection] Calling Flask API at:', FRAUD_SERVICE_URL);
     
-    const pythonProcess = spawn(PYTHON_EXECUTABLE, [FRAUD_PREDICTION_SCRIPT], {
-      cwd: path.dirname(FRAUD_PREDICTION_SCRIPT),
-      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FRAUD_SERVICE_TIMEOUT);
+
+    const response = await fetch(`${FRAUD_SERVICE_URL}/predict`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(inputData),
+      signal: controller.signal,
     });
 
-    let stdout = '';
-    let stderr = '';
+    clearTimeout(timeoutId);
 
-    pythonProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    pythonProcess.on('close', (code) => {
-      if (code !== 0) {
-        console.error('Python script error:', stderr);
-        resolve({
-          modelAvailable: false,
-          dataAvailable: false,
-          profileFound: false,
-          fraudScore: null,
-          riskLevel: null,
-          riskFactors: [],
-          featureContributions: [],
-          recommendation: null,
-          error: `Python script exited with code ${code}: ${stderr}`
-        });
-        return;
-      }
-
-      try {
-        const result = JSON.parse(stdout.trim());
-        resolve(result);
-      } catch (e) {
-        console.error('Failed to parse Python output:', stdout);
-        resolve({
-          modelAvailable: false,
-          dataAvailable: false,
-          profileFound: false,
-          fraudScore: null,
-          riskLevel: null,
-          riskFactors: [],
-          featureContributions: [],
-          recommendation: null,
-          error: `Failed to parse response: ${stdout}`
-        });
-      }
-    });
-
-    pythonProcess.on('error', (err) => {
-      console.error('Failed to spawn Python process:', err);
-      resolve({
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
+      console.error('[FraudDetection] Flask API error:', errorData);
+      return {
         modelAvailable: false,
         dataAvailable: false,
         profileFound: false,
@@ -128,14 +77,56 @@ async function executePythonScript(inputData: object): Promise<FraudDetectionRes
         riskFactors: [],
         featureContributions: [],
         recommendation: null,
-        error: `Failed to spawn Python: ${err.message}`
-      });
-    });
+        error: `API error: ${errorData.error || response.statusText}`
+      };
+    }
 
-    // Send input data to Python script via stdin
-    pythonProcess.stdin.write(JSON.stringify(inputData));
-    pythonProcess.stdin.end();
-  });
+    const result = await response.json() as FraudDetectionResult;
+    return result;
+
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        console.error('[FraudDetection] Request timeout after', FRAUD_SERVICE_TIMEOUT, 'ms');
+        return {
+          modelAvailable: false,
+          dataAvailable: false,
+          profileFound: false,
+          fraudScore: null,
+          riskLevel: null,
+          riskFactors: [],
+          featureContributions: [],
+          recommendation: null,
+          error: `Request timeout after ${FRAUD_SERVICE_TIMEOUT}ms`
+        };
+      } else {
+        console.error('[FraudDetection] Request error:', error.message);
+        return {
+          modelAvailable: false,
+          dataAvailable: false,
+          profileFound: false,
+          fraudScore: null,
+          riskLevel: null,
+          riskFactors: [],
+          featureContributions: [],
+          recommendation: null,
+          error: `Failed to connect: ${error.message}`
+        };
+      }
+    }
+    
+    return {
+      modelAvailable: false,
+      dataAvailable: false,
+      profileFound: false,
+      fraudScore: null,
+      riskLevel: null,
+      riskFactors: [],
+      featureContributions: [],
+      recommendation: null,
+      error: 'Unknown error occurred'
+    };
+  }
 }
 
 // ============================================================
@@ -146,41 +137,30 @@ async function executePythonScript(inputData: object): Promise<FraudDetectionRes
  * Check if the fraud detection model is available and loaded
  */
 export async function checkModelStatus(): Promise<{ modelAvailable: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    const pythonProcess = spawn(PYTHON_EXECUTABLE, [FRAUD_PREDICTION_SCRIPT, '--check'], {
-      cwd: path.dirname(FRAUD_PREDICTION_SCRIPT),
-      env: { ...process.env, PYTHONUNBUFFERED: '1' }
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(`${FRAUD_SERVICE_URL}/health`, {
+      method: 'GET',
+      signal: controller.signal,
     });
 
-    let stdout = '';
-    let stderr = '';
+    clearTimeout(timeoutId);
 
-    pythonProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
+    if (!response.ok) {
+      return { modelAvailable: false, error: `Health check failed: ${response.statusText}` };
+    }
 
-    pythonProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    pythonProcess.on('close', (code) => {
-      if (code !== 0) {
-        resolve({ modelAvailable: false, error: stderr });
-        return;
-      }
-
-      try {
-        const result = JSON.parse(stdout.trim());
-        resolve(result);
-      } catch (e) {
-        resolve({ modelAvailable: false, error: 'Failed to parse response' });
-      }
-    });
-
-    pythonProcess.on('error', (err) => {
-      resolve({ modelAvailable: false, error: err.message });
-    });
-  });
+    const data = await response.json() as any;
+    return {
+      modelAvailable: data.modelAvailable || false,
+      error: data.error
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { modelAvailable: false, error: errorMessage };
+  }
 }
 
 /**
