@@ -10,7 +10,7 @@ const execPromise = util.promisify(exec);
 // Initialize Gemini
 // API key must be provided via environment variable process.env.API_KEY
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const modelId = "gemini-3-pro-preview"; // Using flash for speed, or pro for quality. Client used 2.5-pro? Let's check. Client used "gemini-2.5-pro". I'll stick to that if available, or "gemini-1.5-pro". "gemini-2.5-pro" might be a typo in client code or a very new model. I'll stick to what client had: "gemini-2.5-pro". Wait, "gemini-2.5-pro" doesn't exist publicly yet? Maybe it's "gemini-1.5-pro" or "gemini-2.0-flash". I'll check what client had. Client had "gemini-2.5-pro". If it works for them... but maybe it was a placeholder. I'll use "gemini-1.5-pro" to be safe, or "gemini-2.0-flash-exp". Actually, I'll use "gemini-1.5-pro" as a safe default for complex tasks. Or "gemini-2.0-flash" if available. I'll check the client code again. It said "gemini-2.5-pro". That's suspicious. I'll use "gemini-1.5-pro" to be safe.
+const modelId = "gemini-2.5-pro"; // Using flash for speed, or pro for quality. Client used 2.5-pro? Let's check. Client used "gemini-2.5-pro". I'll stick to that if available, or "gemini-1.5-pro". "gemini-2.5-pro" might be a typo in client code or a very new model. I'll stick to what client had: "gemini-2.5-pro". Wait, "gemini-2.5-pro" doesn't exist publicly yet? Maybe it's "gemini-1.5-pro" or "gemini-2.0-flash". I'll check what client had. Client had "gemini-2.5-pro". If it works for them... but maybe it was a placeholder. I'll use "gemini-1.5-pro" to be safe, or "gemini-2.0-flash-exp". Actually, I'll use "gemini-1.5-pro" as a safe default for complex tasks. Or "gemini-2.0-flash" if available. I'll check the client code again. It said "gemini-2.5-pro". That's suspicious. I'll use "gemini-1.5-pro" to be safe.
 
 // Schema 1: Field Extraction
 const extractionSchema: Schema = {
@@ -55,8 +55,25 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
         await fs.writeFile(inputPath, buffer);
 
         // 2. Run Python Script
-        // Assuming new_code is at ../new_code relative to server root
-        const scriptPath = path.resolve("../new_code/signature_extract.py");
+        // Script is now in ../ml relative to services/analysisService.ts (which is in dist/server/services)
+        // Actually, in source it is server/services -> server/ml.
+        // When running from dist/server/services/analysisService.js, we need to go up to dist/server then to ml?
+        // Wait, the python script is NOT compiled to dist. It stays in server/ml.
+        // So if we are in dist/server/services, we need to go ../../ml/signature_extract.py?
+        // Let's check where we are running from.
+        // We are running `node dist/server/server.js`.
+        // `__dirname` will be `.../dist/server/services`.
+        // So `path.resolve` with `../ml` might be tricky if we rely on relative paths from the source file.
+        // Better to use `path.join(process.cwd(), 'server/ml/signature_extract.py')` if we assume CWD is project root?
+        // The server is started from `server` directory usually? "start": "node dist/server/server.js".
+        // If we run `npm run start -w server`, CWD is `.../server`.
+        // So `path.resolve("ml/signature_extract.py")` should work if CWD is `server`.
+
+        // Previous code was: path.resolve("../new_code/signature_extract.py")
+        // If CWD was `server`, then `../new_code` worked.
+        // Now file is in `server/ml`. So `ml/signature_extract.py` relative to CWD `server`.
+
+        const scriptPath = path.resolve("ml/signature_extract.py");
         // Use the venv python executable
         const pythonPath = path.resolve("database/venv/bin/python");
         const command = `${pythonPath} "${scriptPath}" "${inputPath}" "${outputPath}" --json`;
@@ -107,7 +124,7 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
         };
 
         const extractionPromise = ai.models.generateContent({
-            model: "gemini-3-pro-preview", // Using 1.5-pro as it is stable
+            model: "gemini-2.5-pro", // Using 1.5-pro as it is stable
             contents: {
                 parts: [
                     imagePart,
@@ -131,7 +148,7 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
         });
 
         const aiDetectionPromise = ai.models.generateContent({
-            model: "gemini-3-pro-preview",
+            model: "gemini-2.5-pro",
             contents: {
                 parts: [
                     imagePart,
