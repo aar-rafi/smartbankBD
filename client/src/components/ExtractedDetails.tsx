@@ -1,19 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChequeData, ValidationResult } from '../../../shared/types';
-import ValidationChecklist from './ValidationChecklist';
+import { ChequeData } from '../../../shared/types';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { CheckCircle2, XCircle, RefreshCw, FileText, PenTool } from "lucide-react";
 
-interface AnalysisResultsProps {
+interface ExtractedDetailsProps {
   data: ChequeData;
-  validation: ValidationResult | null;
   originalImage: string | null;
   onReset: () => void;
 }
 
 const ResultRow: React.FC<{ label: string; value: string | number | null; }> = ({ label, value }) => (
-  <div className="flex flex-col sm:flex-row sm:justify-between py-3 border-b border-gray-100 last:border-0">
-    <span className="text-sm font-medium text-gray-500">{label}</span>
-    <span className="text-base font-semibold mt-1 sm:mt-0 text-gray-900 min-h-[1.5rem] text-right">
-      {value === null || value === '' ? '' : value}
+  <div className="flex flex-col sm:flex-row sm:justify-between py-3">
+    <span className="text-sm font-medium text-muted-foreground">{label}</span>
+    <span className="text-sm font-semibold mt-1 sm:mt-0 text-foreground min-h-[1.5rem] text-right">
+      {value === null || value === '' ? <span className="text-muted-foreground italic">Not detected</span> : value}
     </span>
   </div>
 );
@@ -64,30 +66,25 @@ const SignatureCropper: React.FC<{ imageUrl: string | null; box: number[] | null
   if (!box || box.length !== 4) return null;
 
   return (
-    <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden bg-white inline-block">
+    <div className="mt-2 border rounded-md overflow-hidden bg-white inline-block">
       <canvas ref={canvasRef} className="max-h-24 w-auto block" />
     </div>
   );
 };
 
 const SignatureIndicator: React.FC<{ hasSignature: boolean; signatureBox: number[] | null; originalImage: string | null }> = ({ hasSignature, signatureBox, originalImage }) => (
-  <div className={`p-3 rounded-lg border ${hasSignature ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-    }`}>
-    <div className="flex items-center gap-2 mb-2">
-      <div className={`flex items-center justify-center w-8 h-8 rounded-full ${hasSignature ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-        }`}>
-        <span className="material-symbols-outlined text-lg">
-          {hasSignature ? 'ink_pen' : 'history_edu'}
-        </span>
+  <div className={`p-4 rounded-lg border ${hasSignature ? 'bg-green-50/50 border-green-200' : 'bg-destructive/10 border-destructive/20'}`}>
+    <div className="flex items-center gap-3 mb-2">
+      <div className={`flex items-center justify-center w-8 h-8 rounded-full ${hasSignature ? 'bg-green-100 text-green-700' : 'bg-destructive/20 text-destructive'}`}>
+        {hasSignature ? <PenTool className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
       </div>
       <div className="flex-1">
-        <p className={`text-xs font-bold uppercase tracking-wide ${hasSignature ? 'text-green-800' : 'text-red-800'}`}>Signature Check</p>
-        <p className={`font-semibold text-sm ${hasSignature ? 'text-green-700' : 'text-red-700'}`}>
+        <p className={`text-xs font-bold uppercase tracking-wide ${hasSignature ? 'text-green-800' : 'text-destructive'}`}>Signature Check</p>
+        <p className={`font-semibold text-sm ${hasSignature ? 'text-green-700' : 'text-destructive'}`}>
           {hasSignature ? 'Handwritten Signature Detected' : 'No Signature Detected'}
         </p>
       </div>
-      {hasSignature && <span className="material-symbols-outlined text-green-600">check_circle</span>}
-      {!hasSignature && <span className="material-symbols-outlined text-red-500">cancel</span>}
+      {hasSignature && <CheckCircle2 className="h-5 w-5 text-green-600" />}
     </div>
 
     {hasSignature && signatureBox && originalImage && (
@@ -99,53 +96,79 @@ const SignatureIndicator: React.FC<{ hasSignature: boolean; signatureBox: number
   </div>
 );
 
-const AnalysisResults: React.FC<AnalysisResultsProps> = ({ data, validation, originalImage, onReset }) => {
-  return (
-    <div className="space-y-6 animate-fade-in-up">
-      {/* Main Extracted Data Card */}
-      <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
-        <div className="bg-indigo-600 px-6 py-4 flex justify-between items-center">
-          <h2 className="text-white text-xl font-bold flex items-center gap-2">
-            <span className="material-symbols-outlined">document_scanner</span>
-            Extracted Details
-          </h2>
-          <button
-            onClick={onReset}
-            className="text-indigo-100 hover:text-white text-sm font-medium hover:underline flex items-center gap-1"
-          >
-            <span className="material-symbols-outlined text-sm">refresh</span>
-            Scan Another
-          </button>
+const AuthenticityBadge: React.FC<{ isAiGenerated: boolean; confidence: number | null }> = ({ isAiGenerated, confidence }) => {
+  if (isAiGenerated) {
+    return (
+      <div className="bg-purple-50 text-purple-900 border border-purple-200 p-4 rounded-xl flex items-start gap-3 mb-6 animate-pulse">
+        <span className="material-symbols-outlined text-3xl text-purple-600 mt-1">auto_awesome</span>
+        <div>
+          <p className="font-bold text-base text-purple-800">AI Generation / SynthID Detected</p>
+          <p className="text-sm text-purple-700 mt-1">
+            This image has been flagged as potentially AI-generated.
+            {confidence ? ` Confidence: ${confidence}%` : ''}
+          </p>
         </div>
+      </div>
+    );
+  }
+  return null;
+};
 
-        <div className="p-6">
+const ExtractedDetails: React.FC<ExtractedDetailsProps> = ({ data, originalImage, onReset }) => {
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Main Extracted Data Card */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-muted/50 border-b">
+          <div className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">Extracted Details</CardTitle>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onReset} className="text-muted-foreground hover:text-primary">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Scan Another
+          </Button>
+        </CardHeader>
+
+        <CardContent className="p-6">
+          {/* Authenticity Warning */}
+          <AuthenticityBadge isAiGenerated={data.isAiGenerated} confidence={data.synthIdConfidence} />
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Bank Details Section */}
             <div className="space-y-1">
-              <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Bank Information</h3>
+              <h3 className="text-xs font-bold text-primary uppercase tracking-wider mb-3">Bank Information</h3>
               <ResultRow label="Bank Name" value={data.bankName} />
+              <Separator />
               <ResultRow label="Branch Name" value={data.branchName} />
+              <Separator />
               <ResultRow label="Routing Number" value={data.routingNumber} />
+              <Separator />
               <ResultRow label="MICR Code" value={data.micrCode} />
             </div>
 
             {/* Payment Details Section */}
             <div className="space-y-1">
-              <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Payment Details</h3>
+              <h3 className="text-xs font-bold text-primary uppercase tracking-wider mb-3">Payment Details</h3>
               <ResultRow label="Cheque Number" value={data.chequeNumber} />
+              <Separator />
               <ResultRow label="Date" value={data.date} />
+              <Separator />
               <ResultRow label="Amount (Digits)" value={data.amountDigits} />
+              <Separator />
               <ResultRow label="Amount (Words)" value={data.amountWords} />
             </div>
 
             {/* Account Details Section */}
             <div className="space-y-1 lg:col-span-2">
-              <div className="h-px bg-gray-100 my-4 lg:hidden"></div>
-              <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Parties Involved</h3>
+              <Separator className="my-4 lg:hidden" />
+              <h3 className="text-xs font-bold text-primary uppercase tracking-wider mb-3">Parties Involved</h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                 <div className="space-y-1">
                   <ResultRow label="Payee Name" value={data.payeeName} />
+                  <Separator />
                   <ResultRow label="Account Holder" value={data.accountHolderName} />
+                  <Separator />
                   <ResultRow label="Account Number" value={data.accountNumber} />
                 </div>
                 <div>
@@ -161,13 +184,10 @@ const AnalysisResults: React.FC<AnalysisResultsProps> = ({ data, validation, ori
               </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Validation Results Card */}
-      {validation && <ValidationChecklist result={validation} />}
+        </CardContent>
+      </Card>
     </div>
   );
 };
 
-export default AnalysisResults;
+export default ExtractedDetails;
