@@ -263,11 +263,11 @@ export const storeValidationResult = async (chequeNumber: string, accountNumber:
           drawerBankId,
           depositorAccountId,
           presentingBankId,
-          validationData.payeeName || 'Unknown',
+          (validationData.payeeName || 'Unknown').substring(0, 100),
           validationData.amountDigits || 0,
-          validationData.amountWords || null,
+          validationData.amountWords ? validationData.amountWords.substring(0, 200) : null,
           new Date().toISOString().split('T')[0],
-          validationData.micrCode || null
+          validationData.micrCode ? validationData.micrCode.substring(0, 50) : null
         ]
       );
 
