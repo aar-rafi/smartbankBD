@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import ImageUploader from './components/ImageUploader';
 import ExtractedDetails from './components/ExtractedDetails';
 import ValidationChecklist from './components/ValidationChecklist';
+import FraudDetection from './components/FraudDetection';
 import { analyzeChequeImage } from './services/geminiService';
 import { AnalysisState } from '../../shared/types';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, FileText, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, FileText, Loader2, RefreshCw, Shield } from "lucide-react";
 
 // Helper to extract signature region from image using Canvas API
 const extractSignatureRegion = (imageDataUrl: string, signatureBox: number[] | null | undefined): Promise<string | null> => {
@@ -68,6 +69,7 @@ const App: React.FC = () => {
     status: 'idle',
     data: null,
     validation: null,
+    fraudDetection: null,
     error: null,
     imagePreview: null,
   });
@@ -84,7 +86,8 @@ const App: React.FC = () => {
         imagePreview: base64Data,
         error: null,
         data: null,
-        validation: null
+        validation: null,
+        fraudDetection: null
       }));
 
       try {
@@ -139,10 +142,35 @@ const App: React.FC = () => {
         const json = await resp.json();
         const validation = json?.validation ?? null;
 
+        // 4. Run Fraud Detection in parallel (non-blocking)
+        // Get signature score from validation if available
+        const signatureScore = validation?.signatureData?.matchScore ?? 85;
+        
+        let fraudDetection = null;
+        try {
+          const fraudResp = await fetch(`/api/fraud-detection`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              chequeData: data,
+              signatureScore 
+            }),
+          });
+          
+          if (fraudResp.ok) {
+            const fraudJson = await fraudResp.json();
+            fraudDetection = fraudJson?.fraudDetection ?? null;
+          }
+        } catch (fraudErr) {
+          console.warn('Fraud detection failed (non-critical):', fraudErr);
+          // Non-critical - continue without fraud detection
+        }
+
         setState(prev => ({
           ...prev,
           status: 'success',
-          validation: validation
+          validation: validation,
+          fraudDetection: fraudDetection
         }));
 
       } catch (err) {
@@ -170,6 +198,7 @@ const App: React.FC = () => {
       status: 'idle',
       data: null,
       validation: null,
+      fraudDetection: null,
       error: null,
       imagePreview: null
     });
@@ -292,12 +321,23 @@ const App: React.FC = () => {
               <ValidationChecklist result={state.validation} />
             )}
 
+            {/* Fraud Detection Results */}
+            {state.status === 'success' && (
+              <FraudDetection 
+                result={state.fraudDetection} 
+                isLoading={false}
+              />
+            )}
+
             {/* Idle State for Right Column */}
             {state.status === 'idle' && (
               <Card className="h-full border-dashed">
                 <CardContent className="h-full flex flex-col items-center justify-center min-h-[300px] text-muted-foreground">
-                  <FileText className="h-16 w-16 mb-4 opacity-20" />
-                  <p className="text-sm">Upload a cheque to see extracted data and validation here</p>
+                  <div className="flex gap-4 mb-4">
+                    <FileText className="h-12 w-12 opacity-20" />
+                    <Shield className="h-12 w-12 opacity-20" />
+                  </div>
+                  <p className="text-sm text-center">Upload a cheque to see extracted data,<br />validation and fraud detection here</p>
                 </CardContent>
               </Card>
             )}

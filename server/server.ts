@@ -17,6 +17,7 @@ import cors from 'cors';
 import { validateChequeData } from './services/validationService.js';
 import { analyzeCheque } from './services/analysisService.js';
 import { testConnection } from './services/db.js';
+import { detectFraud, checkModelStatus, getMockFraudResult } from './services/fraudDetectionService.js';
 
 const app = express();
 const PORT = Number(process.env.SERVER_PORT || 3001);
@@ -80,6 +81,63 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     const msg = error instanceof Error ? error.message : 'Analysis failed';
     console.error('Analysis error:', error);
     res.status(500).json({ success: false, error: { message: msg }, message: msg });
+  }
+});
+
+// ============================================================
+// FRAUD DETECTION ENDPOINTS
+// ============================================================
+
+// Check if fraud detection model is available
+app.get('/api/fraud-detection/status', async (req: Request, res: Response) => {
+  try {
+    const status = await checkModelStatus();
+    res.json({ 
+      success: true, 
+      ...status,
+      timestamp: new Date().toISOString() 
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Status check failed';
+    console.error('Fraud detection status error:', error);
+    res.status(500).json({ success: false, error: { message: msg }, modelAvailable: false });
+  }
+});
+
+// Run fraud detection analysis
+app.post('/api/fraud-detection', async (req: Request, res: Response) => {
+  try {
+    const { chequeData, signatureScore } = req.body;
+    
+    if (!chequeData) {
+      return res.status(400).json({ 
+        success: false, 
+        error: { message: 'Missing chequeData in request body' } 
+      });
+    }
+
+    // Try real fraud detection first
+    let result = await detectFraud(chequeData, signatureScore || 85);
+    
+    // If model not available, use mock for demo purposes
+    if (!result.modelAvailable && !result.error?.includes('parse')) {
+      console.log('[FraudDetection] Model not available, using mock results');
+      result = getMockFraudResult(chequeData);
+    }
+
+    res.json({ 
+      success: true, 
+      fraudDetection: result,
+      timestamp: new Date().toISOString() 
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Fraud detection failed';
+    console.error('Fraud detection error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: { message: msg }, 
+      message: msg 
+    });
   }
 });
 
