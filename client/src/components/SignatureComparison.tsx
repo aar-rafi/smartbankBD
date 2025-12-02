@@ -79,12 +79,12 @@ const SignatureComparison: React.FC<SignatureComparisonProps> = ({ data, hasSign
                 )}
               </div>
 
-              {/* Reference Signature */}
-              <div className="space-y-2">
-                <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
-                  Reference (On File)
-                </h4>
-                {referenceBase64 ? (
+              {/* Reference Signature - Only show if we have it (drawer bank) */}
+              {referenceBase64 ? (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
+                    Reference (On File)
+                  </h4>
                   <div className="bg-muted/30 rounded-lg border p-3 flex items-center justify-center h-48">
                     <img
                       src={referenceBase64}
@@ -92,12 +92,20 @@ const SignatureComparison: React.FC<SignatureComparisonProps> = ({ data, hasSign
                       className="max-h-full max-w-full object-contain"
                     />
                   </div>
-                ) : (
-                  <div className="bg-amber-50 rounded-lg border border-amber-200 p-3 flex items-center justify-center h-48 text-amber-700">
-                    <span className="text-sm">No reference signature on file for this account</span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
+                    Verification Status
+                  </h4>
+                  <div className="bg-blue-50 rounded-lg border border-blue-200 p-3 flex flex-col items-center justify-center h-48 text-blue-700">
+                    <span className="text-sm font-medium">Signature Extracted ✓</span>
+                    <span className="text-xs mt-2 text-center">
+                      Reference comparison will be done by the drawer bank (account holder's bank)
+                    </span>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Match Score / Status */}
