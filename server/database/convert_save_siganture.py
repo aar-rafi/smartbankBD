@@ -3,15 +3,16 @@ import os
 import shutil
 
 # Configuration
-SOURCE_IMAGE_PATH = '../../signatures/sig-2.jpg' # Adjust if needed
-DEST_DIR = 'signatures'
+# Assuming script is run from server/database/
+SOURCE_IMAGE_PATH = '../../signatures/sig-2.jpg' 
+DEST_DIR = '../../signatures' 
 ACCOUNT_ID = 4
 NEW_FILENAME = f'sig-{ACCOUNT_ID}.jpg'
-DB_IMAGE_PATH = f'/{DEST_DIR}/{NEW_FILENAME}'
+# DB path should be absolute web path or relative to project root? 
+# Usually static files are served from a root. Let's use /signatures/filename.
+DB_IMAGE_PATH = f'/signatures/{NEW_FILENAME}'
 
-# Ensure destination directory exists (relative to where script is run, or project root)
-# Assuming script is run from project root or we handle paths carefully.
-# Let's assume we run this from project root for simplicity in path resolution
+# Ensure destination directory exists
 if not os.path.exists(DEST_DIR):
     os.makedirs(DEST_DIR)
 
