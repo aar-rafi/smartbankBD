@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { ChequeDetails, fetchChequeDetails, updateChequeDecision, runDeepVerification, deleteCheque } from '@/services/api';
 import BACHPackage from './BACHPackage';
+import FraudDetection from './FraudDetection';
+import { FraudDetectionResult, RiskFactor, FeatureContribution } from '../../../shared/types';
 
 interface ChequeDetailsViewProps {
     chequeId: number;
@@ -102,6 +104,7 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
         const map: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
             'received': { label: 'Received', color: 'bg-gray-100 text-gray-800', icon: <Clock className="h-4 w-4" /> },
             'validated': { label: 'Validated', color: 'bg-blue-100 text-blue-800', icon: <CheckCircle2 className="h-4 w-4" /> },
+            'validation_failed': { label: 'Validation Failed', color: 'bg-red-100 text-red-800', icon: <XCircle className="h-4 w-4" /> },
             'clearing': { label: 'In Transit (BACH)', color: 'bg-purple-100 text-purple-800', icon: <Clock className="h-4 w-4" /> },
             'at_drawer_bank': { label: 'Awaiting Verification', color: 'bg-indigo-100 text-indigo-800', icon: <AlertCircle className="h-4 w-4" /> },
             'approved': { label: 'Approved', color: 'bg-green-100 text-green-800', icon: <CheckCircle2 className="h-4 w-4" /> },
@@ -154,6 +157,100 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
     const statusInfo = getStatusInfo(cheque.status);
     const isDrawerBank = cheque.drawer_bank_code?.toLowerCase() === currentBankCode.toLowerCase();
     const canMakeDecision = isDrawerBank && cheque.status === 'at_drawer_bank';
+
+    // Convert verification data to FraudDetectionResult format
+    const convertToFraudDetectionResult = (verification: any): FraudDetectionResult | null => {
+        if (!verification) return null;
+
+        const riskFactors: RiskFactor[] = [];
+        const featureContributions: FeatureContribution[] = [];
+
+        // Convert behavior flags to risk factors
+        if (verification.behavior_flags && Array.isArray(verification.behavior_flags)) {
+            verification.behavior_flags.forEach((flag: string) => {
+                const flagMap: Record<string, { severity: 'low' | 'medium' | 'high', description: string }> = {
+                    'unusual_amount': { severity: 'high', description: 'Amount significantly different from usual transactions' },
+                    'new_payee': { severity: 'medium', description: 'Payment to a new/unknown payee' },
+                    'unusual_time': { severity: 'medium', description: 'Transaction processed at unusual hour' },
+                    'unusual_day': { severity: 'low', description: 'Transaction on unusual day' },
+                    'high_velocity': { severity: 'high', description: 'Too many cheques in short period' },
+                    'dormant_account': { severity: 'medium', description: 'Account was inactive for extended period' }
+                };
+
+                const flagInfo = flagMap[flag] || { severity: 'low' as const, description: flag.replace(/_/g, ' ') };
+                riskFactors.push({
+                    factor: flagInfo.description,
+                    severity: flagInfo.severity,
+                    description: flagInfo.description,
+                    value: true
+                });
+            });
+        }
+
+        // Add feature contributions
+        if (verification.signature_score !== null && verification.signature_score !== undefined) {
+            featureContributions.push({
+                name: 'Signature Score',
+                value: `${verification.signature_score}%`,
+                impact: verification.signature_score >= 70 ? 'normal' : verification.signature_score >= 50 ? 'medium' : 'high'
+            });
+        }
+
+        if (verification.fraud_risk_score !== null && verification.fraud_risk_score !== undefined) {
+            featureContributions.push({
+                name: 'Amount Analysis',
+                value: verification.amount_deviation || 0,
+                impact: Math.abs(verification.amount_deviation || 0) > 2 ? 'high' : 'normal'
+            });
+        }
+
+        featureContributions.push({
+            name: 'Payee History',
+            value: riskFactors.some(f => f.factor.includes('new/unknown')) ? 'New' : 'Known',
+            impact: riskFactors.some(f => f.factor.includes('new/unknown')) ? 'medium' : 'normal'
+        });
+
+        featureContributions.push({
+            name: 'Transaction Velocity',
+            value: verification.velocity_24h || 0,
+            impact: (verification.velocity_24h || 0) > 5 ? 'high' : 'normal'
+        });
+
+        featureContributions.push({
+            name: 'Account Health',
+            value: verification.is_dormant_account ? 'Dormant' : 'Active',
+            impact: verification.is_dormant_account ? 'medium' : 'normal'
+        });
+
+        const riskLevel = (verification.risk_level || 'low') as 'low' | 'medium' | 'high' | 'critical';
+        const fraudScore = verification.fraud_risk_score || 0;
+
+        let recommendation = '';
+        if (riskLevel === 'critical' || fraudScore >= 80) {
+            recommendation = 'REJECT - Critical fraud risk detected. Do not process this cheque.';
+        } else if (riskLevel === 'high' || fraudScore >= 60) {
+            recommendation = 'REVIEW - High fraud risk detected. Manual review required.';
+        } else if (riskLevel === 'medium' || fraudScore >= 40) {
+            recommendation = 'REVIEW - Moderate risk factors detected. Verify details carefully.';
+        } else {
+            recommendation = 'APPROVE - Low risk detected. Proceed with normal processing.';
+        }
+
+        return {
+            modelAvailable: true,
+            dataAvailable: true,
+            profileFound: true,
+            fraudScore: fraudScore,
+            riskLevel: riskLevel,
+            decision: verification.ai_decision === 'reject' ? 'reject' : verification.ai_decision === 'flag_for_review' ? 'review' : 'approve',
+            confidence: verification.ai_confidence || 85,
+            riskFactors: riskFactors,
+            featureContributions: featureContributions,
+            recommendation: recommendation
+        };
+    };
+
+    const fraudDetectionResult = convertToFraudDetectionResult(verification);
 
     // Timeline
     const timeline = [
@@ -251,6 +348,44 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                         </CardContent>
                     </Card>
 
+                    {/* Run Verification Button - for drawer bank - MOVED TO TOP */}
+                    {isDrawerBank && (cheque.status === 'at_drawer_bank' || cheque.status === 'clearing') && (
+                        <Card className="border-indigo-200 bg-indigo-50/50">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Brain className="h-5 w-5 text-indigo-500" />
+                                    Deep Verification Required
+                                </CardTitle>
+                                <CardDescription>
+                                    As the drawer bank, you need to run AI verification before making a decision
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Button 
+                                    onClick={runVerification} 
+                                    className="w-full"
+                                    disabled={verifying}
+                                    size="lg"
+                                >
+                                    {verifying ? (
+                                        <>
+                                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                            Running AI Verification...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Shield className="h-5 w-5 mr-2" />
+                                            Run Deep Verification
+                                        </>
+                                    )}
+                                </Button>
+                                <p className="text-xs text-muted-foreground mt-3 text-center">
+                                    This will verify: Account status, Funds, Signature match, AI detection, Fraud analysis
+                                </p>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {/* Initial Validation Results */}
                     {validation && (
                         <Card>
@@ -319,6 +454,14 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                 )}
                             </CardContent>
                         </Card>
+                    )}
+
+                    {/* ML Fraud Detection - Drawer Bank Only */}
+                    {isDrawerBank && fraudDetectionResult && (
+                        <FraudDetection 
+                            result={fraudDetectionResult} 
+                            isLoading={false}
+                        />
                     )}
 
                     {/* AI Verification Results */}
@@ -477,44 +620,6 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                         </div>
                                     ))}
                                 </div>
-                            </CardContent>
-                        </Card>
-                    )}
-
-                    {/* Run Verification Button - for drawer bank */}
-                    {isDrawerBank && (cheque.status === 'at_drawer_bank' || cheque.status === 'clearing') && (
-                        <Card className="border-indigo-200 bg-indigo-50/50">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <Brain className="h-5 w-5 text-indigo-500" />
-                                    Deep Verification Required
-                                </CardTitle>
-                                <CardDescription>
-                                    As the drawer bank, you need to run AI verification before making a decision
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <Button 
-                                    onClick={runVerification} 
-                                    className="w-full"
-                                    disabled={verifying}
-                                    size="lg"
-                                >
-                                    {verifying ? (
-                                        <>
-                                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                            Running AI Verification...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Shield className="h-5 w-5 mr-2" />
-                                            Run Deep Verification
-                                        </>
-                                    )}
-                                </Button>
-                                <p className="text-xs text-muted-foreground mt-3 text-center">
-                                    This will verify: Account status, Funds, Signature match, AI detection, Fraud analysis
-                                </p>
                             </CardContent>
                         </Card>
                     )}

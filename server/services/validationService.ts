@@ -409,22 +409,67 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
         });
     }
 
-    // 7. Fraud/Behavior Analysis (placeholder - would use customer_profiles table)
-    rules.push({
-        id: 'fraud-analysis',
-        label: 'Fraud Risk Analysis',
-        status: 'pass',
-        message: 'Transaction within normal patterns',
-        details: { 
-            riskScore: 15, 
-            riskLevel: 'low',
-            flags: []
+    // 7. Fraud/Behavior Analysis - Call the ML fraud detection service
+    let fraudRiskScore = 0;
+    let fraudRiskLevel = 'low';
+    let fraudRiskFactors: string[] = [];
+    
+    try {
+        const { detectFraud } = await import('./fraudDetectionService.js');
+        const fraudResult = await detectFraud(data, signatureData.matchScore ?? 85);
+        
+        if (fraudResult.modelAvailable && fraudResult.fraudScore !== null) {
+            fraudRiskScore = fraudResult.fraudScore;
+            fraudRiskLevel = fraudResult.riskLevel || 'low';
+            fraudRiskFactors = fraudResult.riskFactors?.map(f => f.description) || [];
+            
+            const fraudStatus = fraudRiskScore >= 70 ? 'fail' : fraudRiskScore >= 50 ? 'warning' : 'pass';
+            rules.push({
+                id: 'fraud-analysis',
+                label: 'Fraud Risk Analysis',
+                status: fraudStatus,
+                message: fraudResult.recommendation || `Risk score: ${fraudRiskScore}%`,
+                details: { 
+                    riskScore: fraudRiskScore, 
+                    riskLevel: fraudRiskLevel,
+                    flags: fraudRiskFactors,
+                    modelAvailable: true
+                }
+            });
+        } else {
+            // Model not available - use conservative default
+            rules.push({
+                id: 'fraud-analysis',
+                label: 'Fraud Risk Analysis',
+                status: 'warning',
+                message: 'Fraud detection model unavailable - manual review recommended',
+                details: { 
+                    riskScore: 0, 
+                    riskLevel: 'unknown',
+                    flags: [],
+                    modelAvailable: false
+                }
+            });
         }
-    });
+    } catch (fraudError) {
+        console.error('Fraud detection error:', fraudError);
+        rules.push({
+            id: 'fraud-analysis',
+            label: 'Fraud Risk Analysis',
+            status: 'warning',
+            message: 'Fraud detection service error - manual review recommended',
+            details: { 
+                riskScore: 0, 
+                riskLevel: 'unknown',
+                flags: [],
+                error: fraudError instanceof Error ? fraudError.message : 'Unknown error'
+            }
+        });
+    }
 
     const isValid = !rules.some(r => r.status === 'fail');
-    const riskScore = rules.find(r => r.id === 'fraud-analysis')?.details?.riskScore ?? 0;
-    const riskLevel = riskScore > 70 ? 'high' : riskScore > 40 ? 'medium' : 'low';
+    const riskScore = fraudRiskScore;
+    const riskLevel = fraudRiskLevel;
 
     return { 
         isValid, 

@@ -1,6 +1,10 @@
 import pool from './db.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { exec } from 'child_process';
+import util from 'util';
+
+const execPromise = util.promisify(exec);
 
 /**
  * Check if an account exists and is active
@@ -140,6 +144,7 @@ export const getAccountDetails = async (accountNumber: string) => {
 
 /**
  * Get reference signature (base64) from account_signatures for an account number
+ * Converts to grayscale before returning
  */
 export const getReferenceSignature = async (accountNumber: string): Promise<Buffer | null> => {
   try {
@@ -166,11 +171,43 @@ export const getReferenceSignature = async (accountNumber: string): Promise<Buff
       // Since server runs from /server folder, go up one level to project root
       const projectRoot = path.resolve(process.cwd(), '..');
       const fullPath = path.join(projectRoot, imagePath);
-      const fileBuffer = await fs.readFile(fullPath);
-      return fileBuffer;
+      
+      // Convert to grayscale using Python script
+      const tempDir = path.resolve('temp');
+      await fs.mkdir(tempDir, { recursive: true });
+      const timestamp = Date.now();
+      const grayOutputPath = path.join(tempDir, `ref_sig_gray_${timestamp}.png`);
+      
+      // Script path is relative to server directory (same as analysisService)
+      const scriptPath = path.resolve('ml/convert_to_grayscale.py');
+      const pythonPath = process.env.PYTHON_PATH || path.resolve('database/venv/bin/python');
+      
+      const command = `"${pythonPath}" "${scriptPath}" "${fullPath}" "${grayOutputPath}"`;
+      const { stdout, stderr } = await execPromise(command);
+      
+      if (stderr) console.warn('Grayscale conversion stderr:', stderr);
+      
+      // Read the grayscale version
+      const grayBuffer = await fs.readFile(grayOutputPath);
+      
+      // Clean up temp file
+      try {
+        await fs.unlink(grayOutputPath);
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+      
+      return grayBuffer;
     } catch (err) {
-      console.warn(`Could not read signature file at ${imagePath}:`, err);
-      return null;
+      console.warn(`Could not read or convert signature file at ${imagePath}:`, err);
+      // Fallback: try to read original file without conversion
+      try {
+        const projectRoot = path.resolve(process.cwd(), '..');
+        const fullPath = path.join(projectRoot, imagePath);
+        return await fs.readFile(fullPath);
+      } catch (fallbackErr) {
+        return null;
+      }
     }
   } catch (error) {
     console.error('Error fetching reference signature:', error);
@@ -498,6 +535,8 @@ export const createCheque = async (data: {
   presentingBankCode: string;
   chequeImagePath?: string;
   signatureImagePath?: string;
+  validationFailed?: boolean;
+  failureReasons?: string;
   analysisResults?: any;
 }) => {
   try {
@@ -505,28 +544,65 @@ export const createCheque = async (data: {
     const numericChequeNumber = extractNumericChequeNumber(data.chequeNumber);
     
     // Get drawer account and bank
-    const drawerResult = await pool.query(
+    let drawerResult = await pool.query(
       'SELECT account_id, bank_id FROM accounts WHERE account_number = $1',
       [data.drawerAccountNumber]
     );
 
-    if (drawerResult.rows.length === 0) {
-      throw new Error(`Drawer account ${data.drawerAccountNumber} not found`);
-    }
+    let drawerAccountId: number;
+    let drawerBankId: number;
 
-    const { account_id: drawerAccountId, bank_id: drawerBankId } = drawerResult.rows[0];
-
-    // Get presenting bank
+    // Get presenting bank first (needed for placeholder account creation if drawer account is missing)
     const presentingBankResult = await pool.query(
       'SELECT bank_id FROM banks WHERE LOWER(bank_code) = LOWER($1)',
       [data.presentingBankCode]
     );
 
+    let presentingBankId: number;
     if (presentingBankResult.rows.length === 0) {
-      throw new Error(`Presenting bank ${data.presentingBankCode} not found`);
+      // Bank not found - get first available bank as fallback
+      const fallbackBank = await pool.query('SELECT bank_id FROM banks LIMIT 1');
+      if (fallbackBank.rows.length === 0) {
+        throw new Error('No banks found in database');
+      }
+      presentingBankId = fallbackBank.rows[0].bank_id;
+      console.warn(`Presenting bank ${data.presentingBankCode} not found - using fallback bank ${presentingBankId}`);
+    } else {
+      presentingBankId = presentingBankResult.rows[0].bank_id;
     }
 
-    const presentingBankId = presentingBankResult.rows[0].bank_id;
+    if (drawerResult.rows.length === 0) {
+      // Account not found - create a placeholder account for faulty records
+      console.warn(`Drawer account ${data.drawerAccountNumber} not found - creating placeholder account`);
+      
+      // Use presenting bank as fallback for placeholder account
+      const fallbackBankId = presentingBankId;
+
+      // Create placeholder account
+      const placeholderResult = await pool.query(
+        `INSERT INTO accounts (bank_id, account_number, holder_name, account_type, balance, status)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (account_number) DO UPDATE SET account_number = accounts.account_number
+         RETURNING account_id, bank_id`,
+        [
+          fallbackBankId,
+          data.drawerAccountNumber,
+          `Unknown Account (${data.drawerAccountNumber})`,
+          'savings',
+          0,
+          'active'
+        ]
+      );
+      
+      drawerAccountId = placeholderResult.rows[0].account_id;
+      drawerBankId = placeholderResult.rows[0].bank_id;
+      
+      console.log(`Created placeholder account ${data.drawerAccountNumber} with ID ${drawerAccountId}`);
+    } else {
+      const { account_id, bank_id } = drawerResult.rows[0];
+      drawerAccountId = account_id;
+      drawerBankId = bank_id;
+    }
 
     // Check if cheque already exists
     const existingCheque = await pool.query(
@@ -537,18 +613,22 @@ export const createCheque = async (data: {
     if (existingCheque.rows.length > 0) {
       // Update existing
       const chequeId = existingCheque.rows[0].cheque_id;
+      const chequeStatus = data.validationFailed ? 'validation_failed' : 'validated';
       await pool.query(
         `UPDATE cheques SET 
           presenting_bank_id = $1, 
-          status = 'validated',
-          cheque_image_path = COALESCE($2, cheque_image_path),
-          signature_image_path = COALESCE($3, signature_image_path)
-         WHERE cheque_id = $4`,
-        [presentingBankId, data.chequeImagePath, data.signatureImagePath, chequeId]
+          status = $2,
+          cheque_image_path = COALESCE($3, cheque_image_path),
+          signature_image_path = COALESCE($4, signature_image_path)
+         WHERE cheque_id = $5`,
+        [presentingBankId, chequeStatus, data.chequeImagePath, data.signatureImagePath, chequeId]
       );
       return chequeId;
     }
 
+    // Determine status based on validation result
+    const chequeStatus = data.validationFailed ? 'validation_failed' : 'validated';
+    
     // Create new cheque
     const insertResult = await pool.query(
       `INSERT INTO cheques (
@@ -559,7 +639,7 @@ export const createCheque = async (data: {
           cheque_image_path, signature_image_path,
           status
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'validated')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING cheque_id`,
       [
         numericChequeNumber,
@@ -572,29 +652,66 @@ export const createCheque = async (data: {
         data.issueDate,
         data.micrCode || null,
         data.chequeImagePath || null,
-        data.signatureImagePath || null
+        data.signatureImagePath || null,
+        chequeStatus
       ]
     );
 
     const chequeId = insertResult.rows[0].cheque_id;
 
-    // Store initial validation results
-    if (data.analysisResults) {
+    // Store initial validation results (always store, even if failed)
+    const validationStatus = data.validationFailed ? 'failed' : 'passed';
+    const failureReason = data.failureReasons || null;
+    
+    // Check if validation already exists
+    const existingValidation = await pool.query(
+      'SELECT validation_id FROM initial_validations WHERE cheque_id = $1',
+      [chequeId]
+    );
+    
+    if (existingValidation.rows.length > 0) {
+      // Update existing validation
+      await pool.query(
+        `UPDATE initial_validations SET
+          all_fields_present = $1,
+          date_valid = $2,
+          micr_readable = $3,
+          ocr_amount = $4,
+          ocr_confidence = $5,
+          amount_match = $6,
+          validation_status = $7,
+          failure_reason = $8
+         WHERE cheque_id = $9`,
+        [
+          !data.validationFailed, // all_fields_present
+          !data.validationFailed, // date_valid (simplified)
+          !!data.micrCode,
+          data.amount,
+          data.analysisResults?.confidence || 85,
+          !data.validationFailed, // amount_match (simplified)
+          validationStatus,
+          failureReason,
+          chequeId
+        ]
+      );
+    } else {
+      // Insert new validation
       await pool.query(
         `INSERT INTO initial_validations (
             cheque_id, all_fields_present, date_valid, micr_readable, 
-            ocr_amount, ocr_confidence, amount_match, validation_status
+            ocr_amount, ocr_confidence, amount_match, validation_status, failure_reason
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           chequeId,
-          true,
-          true,
+          !data.validationFailed, // all_fields_present
+          !data.validationFailed, // date_valid (simplified)
           !!data.micrCode,
           data.amount,
-          data.analysisResults.confidence || 85,
-          true,
-          'passed'
+          data.analysisResults?.confidence || 85,
+          !data.validationFailed, // amount_match (simplified)
+          validationStatus,
+          failureReason
         ]
       );
     }

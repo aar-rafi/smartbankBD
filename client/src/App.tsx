@@ -13,7 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, FileText, Loader2, RefreshCw, LayoutDashboard, ScanLine, Phone, Check, X, Building2, Shield, LogOut } from "lucide-react";
+import { AlertCircle, FileText, Loader2, RefreshCw, LayoutDashboard, ScanLine, Phone, Check, X, Building2, Shield, LogOut, CheckCircle2 } from "lucide-react";
 import { cn } from '@/lib/utils';
 import { BANKS, Bank } from '@/lib/bankContext';
 import { AuthProvider, useAuth } from '@/lib/authContext';
@@ -137,20 +137,19 @@ const AppContent: React.FC = () => {
             ['completeness', 'date-format', 'signature-present'].includes(r.id) && r.status === 'fail'
           );
           updateStepStatus('basic-val', basicFail ? 'error' : 'completed');
-          if (basicFail) {
-            setState(prev => ({ ...prev, status: 'success', validation }));
-            return;
-          }
 
           // Signature presence check (not ML verification - that happens at drawer bank)
           updateStepStatus('signature', 'current');
           const sigPresentRule = rules.find((r: any) => r.id === 'signature-present');
           const sigStatus = sigPresentRule?.status === 'pass' ? 'completed' : 'error';
           updateStepStatus('signature', sigStatus);
-          if (sigStatus !== 'completed') { 
-            setState(prev => ({ ...prev, status: 'success', validation }));
-            setManualReviewRequired(true); 
-            return; 
+          
+          // Determine if validation passed
+          const validationPassed = !basicFail && sigStatus === 'completed';
+          
+          if (!validationPassed) {
+            // Still save as faulty record, but mark for manual review
+            setManualReviewRequired(true);
           }
 
           // Image quality check (basic AI detection at presenting bank)
@@ -186,9 +185,14 @@ const AppContent: React.FC = () => {
           
           updateStepStatus('update', 'current');
           
-          // Save cheque to database (basic validation passed - ready for BACH)
+          // Always save cheque to database (even if validation failed - store as faulty record)
+          let savedChequeId: number | null = null;
           try {
-            await createCheque({
+            // Collect failure reasons
+            const failedRules = rules.filter((r: any) => r.status === 'fail');
+            const failureReasons = failedRules.map((r: any) => `${r.label}: ${r.message || 'Failed'}`).join('; ');
+            
+            savedChequeId = await createCheque({
               chequeNumber: data.chequeNumber || `CHQ${Date.now()}`,
               drawerAccountNumber: data.accountNumber || '',
               payeeName: data.payeeName || 'Unknown',
@@ -200,6 +204,9 @@ const AppContent: React.FC = () => {
               // Image paths for drawer bank verification
               chequeImagePath: data.chequeImagePath || undefined,
               signatureImagePath: data.signatureImagePath || undefined,
+              // Mark as failed if validation didn't pass
+              validationFailed: !validationPassed,
+              failureReasons: failureReasons || undefined,
               // Analysis results including fraud detection
               analysisResults: {
                 signatureScore: validation?.signatureData?.matchScore,
@@ -218,10 +225,21 @@ const AppContent: React.FC = () => {
               }
             });
             updateStepStatus('update', 'completed');
-            console.log('Cheque saved to database successfully');
+            console.log(`Cheque saved to database successfully${!validationPassed ? ' (as faulty record)' : ''}`);
+            
+            // After successful save, automatically switch to dashboard after showing success message
+            // Only auto-redirect if not requiring manual review
+            if (!manualReviewRequired) {
+              setTimeout(() => {
+                resetAnalysis();
+                setMode('dashboard');
+                if (savedChequeId) {
+                  console.log(`Cheque saved with ID: ${savedChequeId} - view in dashboard`);
+                }
+              }, 3000); // 3 second delay to show success message before redirecting
+            }
           } catch (dbError) {
             console.error('Failed to save cheque to database:', dbError);
-            // Still mark as completed since validation passed
             updateStepStatus('update', 'warning');
           }
 
@@ -378,9 +396,18 @@ const AppContent: React.FC = () => {
                           )}
                         </div>
                         {state.status === 'success' && !manualReviewRequired && (
-                          <Button variant="outline" className="w-full" onClick={resetAnalysis}>
-                            <RefreshCw className="mr-2 h-4 w-4" /> Process Next Cheque
-                          </Button>
+                          <div className="space-y-2">
+                            <Alert className="bg-green-50 border-green-200">
+                              <CheckCircle2 className="h-4 w-4 text-green-600" />
+                              <AlertTitle className="text-green-800">Cheque Processed Successfully</AlertTitle>
+                              <AlertDescription className="text-green-700 text-sm mt-1">
+                                The cheque has been saved and will appear in your dashboard. Redirecting...
+                              </AlertDescription>
+                            </Alert>
+                            <Button variant="outline" className="w-full" onClick={() => { resetAnalysis(); setMode('dashboard'); }}>
+                              <LayoutDashboard className="mr-2 h-4 w-4" /> Go to Dashboard
+                            </Button>
+                          </div>
                         )}
                       </div>
                     ) : (
@@ -393,13 +420,7 @@ const AppContent: React.FC = () => {
                   <ExtractedDetails data={state.data} originalImage={state.imagePreview} onReset={resetAnalysis} />
                 )}
 
-                {/* Fraud Detection Results */}
-                {state.status === 'success' && state.fraudDetection && (
-                  <FraudDetection 
-                    result={state.fraudDetection} 
-                    isLoading={false}
-                  />
-                )}
+                {/* Note: ML Fraud Detection is now shown on the cheque details page (drawer bank side), not here */}
               </div>
 
               <div className="lg:col-span-5 space-y-6">
