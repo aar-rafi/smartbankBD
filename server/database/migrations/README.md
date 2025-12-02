@@ -114,6 +114,11 @@ END $$;
   - `idx_transactions_receiver` - On receiver_name
   - `idx_transactions_date` - On txn_date
 
+### 002_add_unique_constraint.sql
+- **Purpose**: Add unique constraint on `deep_verifications.cheque_id`
+- **Why Needed**: Allows `ON CONFLICT (cheque_id)` for upserts when storing verification results
+- **Run If**: You get error "there is no unique or exclusion constraint matching the ON CONFLICT specification"
+
 ## Troubleshooting
 
 ### Migration Fails with "column already exists"
