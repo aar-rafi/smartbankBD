@@ -10,7 +10,7 @@ const execPromise = util.promisify(exec);
 // Initialize Gemini
 // API key must be provided via environment variable process.env.API_KEY
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const GEMINI_MODEL = "gemini-2.5-pro"; // Centralized model configuration
+const GEMINI_MODEL = "gemini-2.5-flash"; // Centralized model configuration
 
 // Schema 1: Field Extraction
 const extractionSchema: Schema = {
