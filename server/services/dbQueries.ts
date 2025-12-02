@@ -162,12 +162,10 @@ export const getReferenceSignature = async (accountNumber: string): Promise<Buff
 
     // Try to read the file
     try {
-      // Assuming imagePath is absolute or relative to some root. 
-      // For sample data '/signatures/carol_sig.png', we might need to adjust.
-      // Let's assume it's relative to project root for now or just return null if not found.
-      // In a real app, this would be an S3 URL or similar.
-      // For hackathon, we might just skip if file not found.
-      const fullPath = path.join(process.cwd(), imagePath);
+      // imagePath is relative to project root (e.g., '/signatures/sig-1.jpg')
+      // Since server runs from /server folder, go up one level to project root
+      const projectRoot = path.resolve(process.cwd(), '..');
+      const fullPath = path.join(projectRoot, imagePath);
       const fileBuffer = await fs.readFile(fullPath);
       return fileBuffer;
     } catch (err) {
