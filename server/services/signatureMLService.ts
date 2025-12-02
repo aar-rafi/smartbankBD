@@ -53,7 +53,7 @@ export const verifySignatureML = async (
             return null;
         }
 
-        const data: MLServiceResponse = await response.json();
+        const data = await response.json() as MLServiceResponse;
 
         if (data.success && data.result) {
             return data.result;
@@ -90,7 +90,7 @@ export const checkMLServiceHealth = async (): Promise<boolean> => {
         clearTimeout(timeoutId);
 
         if (response.ok) {
-            const data = await response.json();
+            const data = await response.json() as any;
             return data.status === 'ok' && data.model_loaded === true;
         }
         return false;

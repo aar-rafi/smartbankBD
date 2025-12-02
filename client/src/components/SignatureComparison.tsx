@@ -1,5 +1,5 @@
 import React from 'react';
-import { SignatureData } from '../../shared/types';
+import { SignatureData } from '../../../shared/types';
 
 interface SignatureComparisonProps {
   data: SignatureData;
@@ -97,11 +97,10 @@ const SignatureComparison: React.FC<SignatureComparisonProps> = ({ data, hasSign
 
             {/* Match Score / Status */}
             {data.matchScore !== undefined && (
-              <div className={`border rounded-lg p-4 ${
-                data.matchScore >= 70 ? 'bg-green-50 border-green-200' : 
-                data.matchScore >= 50 ? 'bg-yellow-50 border-yellow-200' : 
-                'bg-red-50 border-red-200'
-              }`}>
+              <div className={`border rounded-lg p-4 ${data.matchScore >= 70 ? 'bg-green-50 border-green-200' :
+                  data.matchScore >= 50 ? 'bg-yellow-50 border-yellow-200' :
+                    'bg-red-50 border-red-200'
+                }`}>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -129,30 +128,28 @@ const SignatureComparison: React.FC<SignatureComparisonProps> = ({ data, hasSign
                       )}
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-gray-700">Confidence Score</span>
                     <div className="flex items-center gap-3">
                       <div className="w-48 h-3 bg-gray-200 rounded-full overflow-hidden">
                         <div
-                          className={`h-full transition-all duration-500 ${
-                            data.matchScore >= 70 ? 'bg-green-500' : 
-                            data.matchScore >= 50 ? 'bg-yellow-500' : 
-                            'bg-red-500'
-                          }`}
+                          className={`h-full transition-all duration-500 ${data.matchScore >= 70 ? 'bg-green-500' :
+                              data.matchScore >= 50 ? 'bg-yellow-500' :
+                                'bg-red-500'
+                            }`}
                           style={{ width: `${Math.min(100, Math.max(0, data.matchScore))}%` }}
                         ></div>
                       </div>
-                      <span className={`text-lg font-bold ${
-                        data.matchScore >= 70 ? 'text-green-700' : 
-                        data.matchScore >= 50 ? 'text-yellow-700' : 
-                        'text-red-700'
-                      }`}>
+                      <span className={`text-lg font-bold ${data.matchScore >= 70 ? 'text-green-700' :
+                          data.matchScore >= 50 ? 'text-yellow-700' :
+                            'text-red-700'
+                        }`}>
                         {data.matchScore.toFixed(1)}%
                       </span>
                     </div>
                   </div>
-                  
+
                   <p className="text-xs text-gray-600 mt-2">
                     {data.matchScore >= 70 ? (
                       '✓ Signatures match within acceptable threshold. Transaction can proceed.'

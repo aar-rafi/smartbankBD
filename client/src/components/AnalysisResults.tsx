@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChequeData, ValidationResult } from '../../shared/types';
+import { ChequeData, ValidationResult } from '../../../shared/types';
 import ValidationChecklist from './ValidationChecklist';
 
 interface AnalysisResultsProps {

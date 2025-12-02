@@ -1,12 +1,12 @@
-import { ChequeData, ValidationResult, ValidationRule } from "../../shared/types";
+import { ChequeData, ValidationResult, ValidationRule } from "../../shared/types.js";
 import {
     checkAccountExists,
     checkChequeStatus,
     checkSufficientFunds,
     storeValidationResult,
-    getReferenceSignature,
-} from "./dbQueries.ts";
-import { verifySignatureML, checkMLServiceHealth } from "./signatureMLService.ts";
+    getReferenceSignature
+} from "./dbQueries.js";
+import { verifySignatureML, checkMLServiceHealth } from "./signatureMLService.js";
 
 // Helper to convert word numbers to digits (simplified for demo)
 const parseAmountWords = (text: string): number | null => {
@@ -291,7 +291,7 @@ export const validateChequeData = async (data: ChequeData): Promise<ValidationRe
                 signatureData.reference = Buffer.isBuffer(refSignatureBuffer)
                     ? refSignatureBuffer.toString('base64')
                     : refSignatureBuffer;
-                
+
                 // If we have both signatures, call ML service for verification
                 if (signatureData.extracted && signatureData.reference) {
                     try {
@@ -300,23 +300,23 @@ export const validateChequeData = async (data: ChequeData): Promise<ValidationRe
                             signatureData.extracted,
                             signatureData.reference
                         );
-                        
+
                         if (mlResult) {
                             // Store ML confidence score (0-100)
                             signatureData.matchScore = mlResult.confidence;
-                            
+
                             // Add ML-based validation rule
                             const threshold = 70; // 70% confidence threshold
                             rules.push({
                                 id: 'signature-ml',
                                 label: 'AI Signature Verification',
-                                status: mlResult.is_match && mlResult.confidence >= threshold ? 'pass' : 
-                                       mlResult.confidence >= 50 ? 'warning' : 'fail',
-                                message: mlResult.is_match 
+                                status: mlResult.is_match && mlResult.confidence >= threshold ? 'pass' :
+                                    mlResult.confidence >= 50 ? 'warning' : 'fail',
+                                message: mlResult.is_match
                                     ? `Signature match confirmed (${mlResult.confidence.toFixed(1)}% confidence)`
                                     : `Signature mismatch detected (${mlResult.confidence.toFixed(1)}% confidence, distance: ${mlResult.distance.toFixed(3)})`
                             });
-                            
+
                             console.log(`✅ ML verification complete: ${mlResult.is_match ? 'MATCH' : 'MISMATCH'} (${mlResult.confidence.toFixed(1)}%)`);
                         } else {
                             console.warn('⚠️  ML service returned null result');
