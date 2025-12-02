@@ -6,7 +6,7 @@ Called from Node.js via subprocess or HTTP API.
 
 Usage:
     python fraud_prediction.py --predict '{"amount": 50000, ...}'
-    python fraud_prediction.py --server  (runs Flask API on port 5001)
+    python fraud_prediction.py --server  (runs Flask API on port 5002)
 """
 
 import os
@@ -29,7 +29,13 @@ from psycopg2.extras import RealDictCursor
 
 # Load environment variables
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+# Try .env.local first (project root), then .env
+env_local = os.path.join(os.path.dirname(__file__), '..', '..', '.env.local')
+env_file = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+if os.path.exists(env_local):
+    load_dotenv(env_local)
+elif os.path.exists(env_file):
+    load_dotenv(env_file)
 
 # ============================================================
 # CONSTANTS & CONFIGURATION
@@ -646,7 +652,7 @@ def main():
     parser.add_argument('--predict', type=str, help='JSON string of cheque data to predict')
     parser.add_argument('--check', action='store_true', help='Check if model is available')
     parser.add_argument('--server', action='store_true', help='Run as Flask API server')
-    parser.add_argument('--port', type=int, default=5001, help='Port for Flask server')
+    parser.add_argument('--port', type=int, default=5002, help='Port for Flask server')
     
     args = parser.parse_args()
     
