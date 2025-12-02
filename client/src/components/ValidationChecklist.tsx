@@ -1,6 +1,5 @@
 import React from 'react';
 import { ValidationResult, ValidationRule } from '../../../shared/types';
-import SignatureComparison from './SignatureComparison';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -77,13 +76,8 @@ const ValidationChecklist: React.FC<{ result: ValidationResult }> = ({ result })
         </CardContent>
       </Card>
 
-      {/* Signature Comparison Component */}
-      {result.signatureData && (
-        <SignatureComparison
-          data={result.signatureData}
-          hasSignature={result.rules.find(r => r.id === 'signature')?.status === 'pass'}
-        />
-      )}
+      {/* NOTE: Signature comparison is NOT shown here (presenting bank).
+          It's shown in ChequeDetailsView when drawer bank runs deep verification. */}
     </div>
   );
 };
