@@ -123,6 +123,8 @@ export const createCheque = async (data: {
     presentingBankCode: string;
     chequeImagePath?: string;
     signatureImagePath?: string;
+    validationFailed?: boolean;
+    failureReasons?: string;
     analysisResults?: {
         signatureScore?: number;
         signatureMatch?: string;

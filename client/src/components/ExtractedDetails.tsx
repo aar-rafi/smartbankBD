@@ -66,15 +66,15 @@ const SignatureCropper: React.FC<{ imageUrl: string | null; box: number[] | null
   if (!box || box.length !== 4) return null;
 
   return (
-    <div className="mt-2 border rounded-md overflow-hidden bg-white inline-block">
-      <canvas ref={canvasRef} className="max-h-24 w-auto block" />
+    <div className="mt-2 border rounded-md overflow-hidden bg-white w-full">
+      <canvas ref={canvasRef} className="max-h-32 w-full h-auto block object-contain" />
     </div>
   );
 };
 
 const SignatureIndicator: React.FC<{ hasSignature: boolean; signatureBox: number[] | null; originalImage: string | null }> = ({ hasSignature, signatureBox, originalImage }) => (
   <div className={`p-4 rounded-lg border ${hasSignature ? 'bg-green-50/50 border-green-200' : 'bg-destructive/10 border-destructive/20'}`}>
-    <div className="flex items-center gap-3 mb-2">
+    <div className="flex items-center gap-3 mb-3">
       <div className={`flex items-center justify-center w-8 h-8 rounded-full ${hasSignature ? 'bg-green-100 text-green-700' : 'bg-destructive/20 text-destructive'}`}>
         {hasSignature ? <PenTool className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
       </div>
@@ -88,9 +88,11 @@ const SignatureIndicator: React.FC<{ hasSignature: boolean; signatureBox: number
     </div>
 
     {hasSignature && signatureBox && originalImage && (
-      <div>
-        <p className="text-xs text-green-700 mb-1 font-medium">Extracted Signature:</p>
-        <SignatureCropper imageUrl={originalImage} box={signatureBox} />
+      <div className="w-full">
+        <p className="text-xs text-green-700 mb-2 font-medium">Extracted Signature:</p>
+        <div className="w-full overflow-hidden">
+          <SignatureCropper imageUrl={originalImage} box={signatureBox} />
+        </div>
       </div>
     )}
   </div>
@@ -171,16 +173,15 @@ const ExtractedDetails: React.FC<ExtractedDetailsProps> = ({ data, originalImage
                   <Separator />
                   <ResultRow label="Account Number" value={data.accountNumber} />
                 </div>
-                <div>
-                  {/* Visual indication for signature */}
-                  <div className="mt-2">
-                    <SignatureIndicator
-                      hasSignature={data.hasSignature}
-                      signatureBox={data.signatureBox}
-                      originalImage={originalImage}
-                    />
-                  </div>
-                </div>
+              </div>
+              
+              {/* Signature Section - Full Width */}
+              <div className="mt-6">
+                <SignatureIndicator
+                  hasSignature={data.hasSignature}
+                  signatureBox={data.signatureBox}
+                  originalImage={originalImage}
+                />
               </div>
             </div>
           </div>
