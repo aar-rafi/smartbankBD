@@ -31,16 +31,23 @@ fi
 echo ""
 echo "Starting ML Fraud Detection Service (port 5002)..."
 cd "$SCRIPT_DIR/server/ml"
-if command -v conda &> /dev/null; then
-    # Using conda
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate chequemate-ml
-    export MODEL_PATH="$SCRIPT_DIR/best_siamese_transformer.pth"
+export MODEL_PATH="$SCRIPT_DIR/server/best_siamese_transformer.pth"
+
+if [ -f "$SCRIPT_DIR/server/database/venv/bin/activate" ]; then
+    # Using venv
+    source "$SCRIPT_DIR/server/database/venv/bin/activate"
     python fraud_prediction.py --server --port 5002 &
     FRAUD_PID=$!
-    echo "  ✓ Fraud Detection Service started (PID: $FRAUD_PID)"
+    echo "  ✓ Fraud Detection Service started with venv (PID: $FRAUD_PID)"
+elif command -v conda &> /dev/null; then
+    # Using conda
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate chequemate-ml 2>/dev/null || conda activate base
+    python fraud_prediction.py --server --port 5002 &
+    FRAUD_PID=$!
+    echo "  ✓ Fraud Detection Service started with conda (PID: $FRAUD_PID)"
 else
-    echo "  ⚠ Conda not found, skipping fraud detection service"
+    echo "  ⚠ No Python environment found, skipping fraud detection service"
     FRAUD_PID=""
 fi
 cd "$SCRIPT_DIR"
@@ -51,16 +58,23 @@ sleep 2
 echo ""
 echo "Starting ML Signature Service (port 5005)..."
 cd "$SCRIPT_DIR/server/ml"
-if command -v conda &> /dev/null; then
-    # Using conda
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate chequemate-ml
-    export MODEL_PATH="$SCRIPT_DIR/best_siamese_transformer.pth"
+export MODEL_PATH="$SCRIPT_DIR/server/best_siamese_transformer.pth"
+
+if [ -f "$SCRIPT_DIR/server/database/venv/bin/activate" ]; then
+    # Using venv
+    source "$SCRIPT_DIR/server/database/venv/bin/activate"
     python signature_service.py &
     ML_PID=$!
-    echo "  ✓ Signature Service started (PID: $ML_PID)"
+    echo "  ✓ Signature Service started with venv (PID: $ML_PID)"
+elif command -v conda &> /dev/null; then
+    # Using conda
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate chequemate-ml 2>/dev/null || conda activate base
+    python signature_service.py &
+    ML_PID=$!
+    echo "  ✓ Signature Service started with conda (PID: $ML_PID)"
 else
-    echo "  ⚠ Conda not found, skipping signature service"
+    echo "  ⚠ No Python environment found, skipping signature service"
     ML_PID=""
 fi
 cd "$SCRIPT_DIR"
