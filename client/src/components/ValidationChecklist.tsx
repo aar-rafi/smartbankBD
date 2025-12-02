@@ -1,5 +1,5 @@
 import React from 'react';
-import { ValidationResult, ValidationRule } from '../../shared/types';
+import { ValidationResult, ValidationRule } from '../../../shared/types';
 import SignatureComparison from './SignatureComparison';
 
 const StatusIcon: React.FC<{ status: ValidationRule['status'] }> = ({ status }) => {
@@ -34,12 +34,12 @@ const ValidationChecklist: React.FC<{ result: ValidationResult }> = ({ result })
               <div className="flex-1">
                 <div className="flex justify-between items-start">
                   <p className={`text-sm font-medium ${rule.status === 'pass' ? 'text-gray-900' :
-                      rule.status === 'fail' ? 'text-red-700' : 'text-amber-700'
+                    rule.status === 'fail' ? 'text-red-700' : 'text-amber-700'
                     }`}>
                     {rule.label}
                   </p>
                   <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${rule.status === 'pass' ? 'bg-green-100 text-green-700' :
-                      rule.status === 'fail' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                    rule.status === 'fail' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
                     }`}>
                     {rule.status}
                   </span>
