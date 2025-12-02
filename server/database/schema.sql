@@ -311,6 +311,7 @@ CREATE TABLE deep_verifications (
 );
 
 CREATE INDEX idx_deep_ver_cheque ON deep_verifications(cheque_id);
+CREATE UNIQUE INDEX idx_deep_ver_cheque_unique ON deep_verifications(cheque_id);
 
 -- ============================================================
 -- 13. FRAUD_FLAGS (Supervisor Queue)
