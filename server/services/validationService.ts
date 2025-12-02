@@ -1,11 +1,11 @@
-import { ChequeData, ValidationResult, ValidationRule } from "../../shared/types";
+import { ChequeData, ValidationResult, ValidationRule } from "../../shared/types.js";
 import {
     checkAccountExists,
     checkChequeStatus,
     checkSufficientFunds,
     storeValidationResult,
     getReferenceSignature,
-} from "./dbQueries.ts";
+} from "./dbQueries.js";
 
 // Helper to convert word numbers to digits (simplified for demo)
 const parseAmountWords = (text: string): number | null => {

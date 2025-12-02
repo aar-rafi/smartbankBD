@@ -1,5 +1,5 @@
 import './loadenv.ts';
-import pool from './services/db.ts';
+import pool from './services/db.js';
 import fs from 'fs/promises';
 import path from 'path';
 

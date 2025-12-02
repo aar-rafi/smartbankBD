@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { ChequeData } from "../../shared/types";
+import { ChequeData } from "../../../shared/types";
 
 // Initialize the client
 // API key must be provided via environment variable process.env.API_KEY
