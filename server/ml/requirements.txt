@@ -1,0 +1,14 @@
+# Flask API
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# PyTorch (CPU version for simplicity, use torch+cu118 for CUDA)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Image processing
+pillow>=10.0.0
+numpy>=1.24.0
+
+# EfficientNet weights
+efficientnet_pytorch>=0.7.1

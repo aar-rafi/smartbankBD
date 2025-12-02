@@ -1,17 +1,26 @@
-import { ChequeData, ValidationResult, ValidationRule } from "../../shared/types";
+import { ChequeData, ValidationResult, ValidationRule } from "../../shared/types.js";
 import {
     checkAccountExists,
     checkChequeStatus,
     checkSufficientFunds,
     storeValidationResult,
-    getReferenceSignature,
-} from "./dbQueries.ts";
+    getReferenceSignature
+} from "./dbQueries.js";
+import { verifySignatureML, checkMLServiceHealth } from "./signatureMLService.js";
 
 // Helper to convert word numbers to digits (simplified for demo)
 const parseAmountWords = (text: string): number | null => {
     if (!text) return null;
     // This is a basic heuristic. Real-world would use a robust NLP library.
     return null;
+};
+
+// Helper to extract numeric cheque number (strips prefixes like "MCG", "CHQ", etc.)
+const extractNumericChequeNumber = (chequeNumber: string | null | undefined): string | null => {
+    if (!chequeNumber) return null;
+    // Extract only digits from the cheque number
+    const digits = chequeNumber.replace(/\D/g, '');
+    return digits || null;
 };
 
 // Helper to parse dates. Accepts ISO-like strings and DDMMYYYY (with or without separators).
@@ -42,7 +51,24 @@ const parseDateString = (input: string | null | undefined): Date | null => {
 export const validateChequeData = async (data: ChequeData): Promise<ValidationResult> => {
     const rules: ValidationRule[] = [];
 
-    // 1. Check Required Fields
+    // 1. Authenticity / AI Generation Check (High Priority)
+    if (data.isAiGenerated) {
+        rules.push({
+            id: 'authenticity',
+            label: 'Security: SynthID / AI Detection',
+            status: 'fail',
+            message: `AI-generated content detected (Confidence: ${data.synthIdConfidence ?? 'High'}%)`
+        });
+    } else {
+        rules.push({
+            id: 'authenticity',
+            label: 'Security: SynthID / AI Detection',
+            status: 'pass',
+            message: 'Image appears authentic (No AI artifacts detected)'
+        });
+    }
+
+    // 2. Check Required Fields
     const requiredFields: (keyof ChequeData)[] = ['bankName', 'chequeNumber', 'date', 'amountDigits', 'accountNumber'];
     const missingFields = requiredFields.filter(field => !data[field]);
 
@@ -192,21 +218,26 @@ export const validateChequeData = async (data: ChequeData): Promise<ValidationRe
 
     // 7. Cheque Status (Real DB Check)
     if (data.chequeNumber) {
-        try {
-            const status = await checkChequeStatus(data.chequeNumber);
-            rules.push({
-                id: 'cheque-leaf',
-                label: 'Database: Cheque Status',
-                status: status === 'active' ? 'pass' : 'fail',
-                message: status === 'active' ? 'Cheque leaf is active and unused' : `Cheque is marked as ${status}`
-            });
-        } catch (error) {
-            rules.push({
-                id: 'cheque-leaf',
-                label: 'Database: Cheque Status',
-                status: 'warning',
-                message: `Database check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-            });
+        const numericChequeNumber = extractNumericChequeNumber(data.chequeNumber);
+        if (numericChequeNumber) {
+            try {
+                const status = await checkChequeStatus(numericChequeNumber);
+                rules.push({
+                    id: 'cheque-leaf',
+                    label: 'Database: Cheque Status',
+                    status: status === 'active' ? 'pass' : 'fail',
+                    message: status === 'active' ? 'Cheque leaf is active and unused' : `Cheque is marked as ${status}`
+                });
+            } catch (error) {
+                rules.push({
+                    id: 'cheque-leaf',
+                    label: 'Database: Cheque Status',
+                    status: 'warning',
+                    message: `Database check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+                });
+            }
+        } else {
+            rules.push({ id: 'cheque-leaf', label: 'Database: Cheque Status', status: 'fail', message: 'Invalid cheque number format' });
         }
     } else {
         rules.push({ id: 'cheque-leaf', label: 'Database: Cheque Status', status: 'fail', message: 'No cheque number to verify' });
@@ -245,17 +276,20 @@ export const validateChequeData = async (data: ChequeData): Promise<ValidationRe
 
     // Store validation result asynchronously (don't wait for it)
     if (data.accountNumber && data.chequeNumber) {
-        storeValidationResult(data.chequeNumber, data.accountNumber, {
-            payeeName: data.payeeName,
-            amountDigits: data.amountDigits,
-            amountWords: data.amountWords,
-            signatureValid: data.hasSignature,
-            dateValid: !rules.find(r => r.id === 'date')?.message?.includes('invalid'),
-            accountActive: rules.find(r => r.id === 'account-db')?.status === 'pass',
-            amountValid: rules.find(r => r.id === 'amount-match')?.status === 'pass',
-            micrCode: data.micrCode,
-            isValid: isValid
-        }).catch(err => console.error('Failed to store validation result:', err));
+        const numericChequeNumber = extractNumericChequeNumber(data.chequeNumber);
+        if (numericChequeNumber) {
+            storeValidationResult(numericChequeNumber, data.accountNumber, {
+                payeeName: data.payeeName,
+                amountDigits: data.amountDigits,
+                amountWords: data.amountWords,
+                signatureValid: data.hasSignature,
+                dateValid: !rules.find(r => r.id === 'date')?.message?.includes('invalid'),
+                accountActive: rules.find(r => r.id === 'account-db')?.status === 'pass',
+                amountValid: rules.find(r => r.id === 'amount-match')?.status === 'pass',
+                micrCode: data.micrCode,
+                isValid: isValid
+            }).catch(err => console.error('Failed to store validation result:', err));
+        }
     }
 
     // Fetch signature data for visual comparison (extracted + reference)
@@ -274,6 +308,54 @@ export const validateChequeData = async (data: ChequeData): Promise<ValidationRe
                 signatureData.reference = Buffer.isBuffer(refSignatureBuffer)
                     ? refSignatureBuffer.toString('base64')
                     : refSignatureBuffer;
+
+                // If we have both signatures, call ML service for verification
+                if (signatureData.extracted && signatureData.reference) {
+                    try {
+                        console.log('🔍 Calling ML service for signature verification...');
+                        const mlResult = await verifySignatureML(
+                            signatureData.extracted,
+                            signatureData.reference
+                        );
+
+                        if (mlResult) {
+                            // Store ML confidence score (0-100)
+                            signatureData.matchScore = mlResult.confidence;
+
+                            // Add ML-based validation rule
+                            const threshold = 70; // 70% confidence threshold
+                            rules.push({
+                                id: 'signature-ml',
+                                label: 'AI Signature Verification',
+                                status: mlResult.is_match && mlResult.confidence >= threshold ? 'pass' :
+                                    mlResult.confidence >= 50 ? 'warning' : 'fail',
+                                message: mlResult.is_match
+                                    ? `Signature match confirmed (${mlResult.confidence.toFixed(1)}% confidence)`
+                                    : `Signature mismatch detected (${mlResult.confidence.toFixed(1)}% confidence, distance: ${mlResult.distance.toFixed(3)})`
+                            });
+
+                            console.log(`✅ ML verification complete: ${mlResult.is_match ? 'MATCH' : 'MISMATCH'} (${mlResult.confidence.toFixed(1)}%)`);
+                        } else {
+                            console.warn('⚠️  ML service returned null result');
+                            rules.push({
+                                id: 'signature-ml',
+                                label: 'AI Signature Verification',
+                                status: 'warning',
+                                message: 'ML service unavailable - manual review recommended'
+                            });
+                        }
+                    } catch (mlError) {
+                        console.error('❌ ML verification error:', mlError);
+                        rules.push({
+                            id: 'signature-ml',
+                            label: 'AI Signature Verification',
+                            status: 'warning',
+                            message: 'ML service error - manual review required'
+                        });
+                    }
+                } else {
+                    console.log('⚠️  Missing signature data for ML verification');
+                }
             }
         } catch (error) {
             console.error('Failed to fetch reference signature:', error);
