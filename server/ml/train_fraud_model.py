@@ -1,17 +1,26 @@
 """
-Fraud Detection Model Training Script
-=====================================
+Anomaly Detection Model Training Script (Unsupervised)
+======================================================
+Uses Isolation Forest for unsupervised anomaly detection.
+NO LABELED DATA REQUIRED - learns "normal" patterns from transaction history.
+
+How it works:
 1. Connects to PostgreSQL database
-2. Extracts features from transactions, customer_profiles, accounts
-3. Creates synthetic fraud labels based on anomaly rules
-4. Trains XGBoost classifier
-5. Saves model to fraud_model.pkl
+2. Extracts 20 features from transactions, customer_profiles, accounts
+3. Trains Isolation Forest to learn normal transaction patterns
+4. Anomalies are transactions that are easy to isolate (rare/different)
+5. Saves model to anomaly_model.pkl
+
+Anomaly Score Interpretation:
+- Score close to 1.0 → Highly anomalous (short isolation path)
+- Score close to 0.5 → Borderline (average path length)
+- Score close to 0.0 → Normal (long path, deep in normal cluster)
 
 Usage:
     python train_fraud_model.py
 
 Requirements:
-    pip install xgboost pandas numpy psycopg2-binary scikit-learn joblib
+    pip install pandas numpy psycopg2-binary scikit-learn joblib
 """
 
 import os
@@ -23,11 +32,10 @@ from typing import Dict, List, Tuple, Optional
 import warnings
 warnings.filterwarnings('ignore')
 
-# ML Libraries
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
-import xgboost as xgb
+# ML Libraries - Unsupervised
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.neighbors import LocalOutlierFactor
 import joblib
 
 # Database
@@ -309,147 +317,77 @@ class FeatureExtractor:
 
 
 # ============================================================
-# SYNTHETIC LABELING
+# ANOMALY ANALYSIS (No labels needed!)
 # ============================================================
 
-def create_synthetic_labels(df: pd.DataFrame) -> pd.DataFrame:
+def analyze_data_distribution(df: pd.DataFrame) -> Dict:
     """
-    Create synthetic fraud labels based on anomaly rules
-    
-    Rules for FRAUD (label=1):
-    1. amount_zscore > 3 (3+ standard deviations)
-    2. is_new_payee=1 AND amount_to_max_ratio > 2 (new payee + 2x usual max)
-    3. is_night_transaction=1 AND is_new_payee=1 (night + new payee)
-    4. txn_count_24h > 5 (high velocity - more than 5 in 24h)
-    5. is_dormant=1 AND is_above_max=1 (dormant account + above max amount)
-    6. bounce_rate > 0.2 AND amount_to_balance_ratio > 0.8 (risky account + high amount)
+    Analyze the distribution of features to understand normal patterns
+    This helps interpret anomaly scores later
     """
+    print("\n" + "="*60)
+    print("DATA DISTRIBUTION ANALYSIS")
+    print("="*60)
     
-    df = df.copy()
+    stats = {}
     
-    # Initialize all as legitimate
-    df['is_fraud'] = 0
+    for col in FEATURE_COLUMNS:
+        if col in df.columns:
+            stats[col] = {
+                'mean': df[col].mean(),
+                'std': df[col].std(),
+                'min': df[col].min(),
+                'max': df[col].max(),
+                'median': df[col].median(),
+                'q25': df[col].quantile(0.25),
+                'q75': df[col].quantile(0.75)
+            }
     
-    # Rule 1: Extreme amount deviation
-    rule1 = df['amount_zscore'] > 3
-    df.loc[rule1, 'is_fraud'] = 1
-    df.loc[rule1, 'fraud_reason'] = 'extreme_amount_deviation'
+    # Print summary for key features
+    print("\nKey Feature Statistics:")
+    print("-" * 50)
+    key_features = ['amount_zscore', 'amount_to_balance_ratio', 'txn_count_24h', 'signature_score']
+    for feat in key_features:
+        if feat in stats:
+            s = stats[feat]
+            print(f"  {feat}:")
+            print(f"    Mean: {s['mean']:.2f}, Std: {s['std']:.2f}")
+            print(f"    Range: [{s['min']:.2f}, {s['max']:.2f}]")
     
-    # Rule 2: New payee with unusually high amount
-    rule2 = (df['is_new_payee'] == 1) & (df['amount_to_max_ratio'] > 2)
-    df.loc[rule2, 'is_fraud'] = 1
-    df.loc[rule2, 'fraud_reason'] = 'new_payee_high_amount'
-    
-    # Rule 3: Night transaction to new payee
-    rule3 = (df['is_night_transaction'] == 1) & (df['is_new_payee'] == 1)
-    df.loc[rule3, 'is_fraud'] = 1
-    df.loc[rule3, 'fraud_reason'] = 'night_new_payee'
-    
-    # Rule 4: High velocity
-    rule4 = df['txn_count_24h'] > 5
-    df.loc[rule4, 'is_fraud'] = 1
-    df.loc[rule4, 'fraud_reason'] = 'high_velocity'
-    
-    # Rule 5: Dormant account with above-max amount
-    rule5 = (df['is_dormant'] == 1) & (df['is_above_max'] == 1)
-    df.loc[rule5, 'is_fraud'] = 1
-    df.loc[rule5, 'fraud_reason'] = 'dormant_high_amount'
-    
-    # Rule 6: Risky account draining balance
-    rule6 = (df['bounce_rate'] > 0.2) & (df['amount_to_balance_ratio'] > 0.8)
-    df.loc[rule6, 'is_fraud'] = 1
-    df.loc[rule6, 'fraud_reason'] = 'risky_account_drain'
-    
-    # Fill NaN fraud reasons
-    df['fraud_reason'] = df['fraud_reason'].fillna('legitimate')
-    
-    print(f"\nSynthetic Labels Created:")
-    print(f"  Legitimate: {len(df[df['is_fraud'] == 0])}")
-    print(f"  Fraudulent: {len(df[df['is_fraud'] == 1])}")
-    print(f"\nFraud by reason:")
-    print(df[df['is_fraud'] == 1]['fraud_reason'].value_counts())
-    
-    return df
+    return stats
 
 
-# ============================================================
-# AUGMENT DATA (if too few fraud samples)
-# ============================================================
-
-def augment_fraud_samples(df: pd.DataFrame, target_fraud_ratio: float = 0.3) -> pd.DataFrame:
+def compute_feature_contributions(model: IsolationForest, X: np.ndarray, 
+                                   feature_names: List[str]) -> pd.DataFrame:
     """
-    Augment dataset with synthetic fraud samples if needed
-    
-    Creates artificial fraud cases by modifying legitimate transactions
+    Compute which features contribute most to anomaly detection
+    Uses permutation-based importance for Isolation Forest
     """
-    current_fraud_ratio = df['is_fraud'].mean()
+    print("\nComputing feature contributions...")
     
-    if current_fraud_ratio >= target_fraud_ratio:
-        print(f"Current fraud ratio {current_fraud_ratio:.2%} >= target {target_fraud_ratio:.2%}, no augmentation needed")
-        return df
+    # Get baseline anomaly scores
+    baseline_scores = -model.score_samples(X)  # Negative because lower = more anomalous
     
-    # Calculate how many fraud samples we need
-    n_legitimate = len(df[df['is_fraud'] == 0])
-    n_fraud_needed = int(n_legitimate * target_fraud_ratio / (1 - target_fraud_ratio))
-    n_current_fraud = len(df[df['is_fraud'] == 1])
-    n_to_create = n_fraud_needed - n_current_fraud
+    importances = []
     
-    print(f"\nAugmenting: Creating {n_to_create} synthetic fraud samples...")
-    
-    # Sample from legitimate transactions and modify them to look fraudulent
-    legitimate = df[df['is_fraud'] == 0].copy()
-    
-    if len(legitimate) == 0:
-        return df
-    
-    synthetic_fraud = []
-    
-    for i in range(n_to_create):
-        # Pick a random legitimate transaction
-        base = legitimate.sample(1).iloc[0].copy()
+    for i, feat_name in enumerate(feature_names):
+        # Permute this feature
+        X_permuted = X.copy()
+        np.random.shuffle(X_permuted[:, i])
         
-        # Randomly apply fraud patterns
-        fraud_type = np.random.choice(['high_amount', 'night_new_payee', 'velocity', 'dormant'])
+        # Get new scores
+        permuted_scores = -model.score_samples(X_permuted)
         
-        if fraud_type == 'high_amount':
-            base['amount_zscore'] = np.random.uniform(3.5, 6)
-            base['amount_to_max_ratio'] = np.random.uniform(2.5, 5)
-            base['is_above_max'] = 1
-            base['fraud_reason'] = 'synthetic_high_amount'
-        
-        elif fraud_type == 'night_new_payee':
-            base['is_night_transaction'] = 1
-            base['is_new_payee'] = 1
-            base['hour_of_day'] = np.random.choice([2, 3, 4, 22, 23])
-            base['is_unusual_hour'] = 1
-            base['fraud_reason'] = 'synthetic_night_new_payee'
-        
-        elif fraud_type == 'velocity':
-            base['txn_count_24h'] = np.random.randint(6, 15)
-            base['txn_count_7d'] = np.random.randint(20, 40)
-            base['fraud_reason'] = 'synthetic_velocity'
-        
-        elif fraud_type == 'dormant':
-            base['is_dormant'] = 1
-            base['days_since_last_txn'] = np.random.randint(100, 365)
-            base['is_above_max'] = 1
-            base['amount_zscore'] = np.random.uniform(2, 4)
-            base['fraud_reason'] = 'synthetic_dormant'
-        
-        base['is_fraud'] = 1
-        synthetic_fraud.append(base)
+        # Importance = how much scores change when feature is randomized
+        importance = np.mean(np.abs(permuted_scores - baseline_scores))
+        importances.append({'feature': feat_name, 'importance': importance})
     
-    # Combine original and synthetic
-    synthetic_df = pd.DataFrame(synthetic_fraud)
-    augmented = pd.concat([df, synthetic_df], ignore_index=True)
-    
-    print(f"After augmentation: {len(augmented)} total, {augmented['is_fraud'].sum()} fraud ({augmented['is_fraud'].mean():.2%})")
-    
-    return augmented
+    importance_df = pd.DataFrame(importances).sort_values('importance', ascending=False)
+    return importance_df
 
 
 # ============================================================
-# MODEL TRAINING
+# MODEL TRAINING - ISOLATION FOREST (Unsupervised)
 # ============================================================
 
 # Feature columns for model (20 features)
@@ -468,121 +406,276 @@ FEATURE_COLUMNS = [
     'signature_score'
 ]
 
+# Anomaly score thresholds
+THRESHOLDS = {
+    'high_risk': 0.7,      # Score >= 0.7 → High risk, likely fraud
+    'medium_risk': 0.5,    # Score 0.5-0.7 → Medium risk, needs review
+    'low_risk': 0.3        # Score 0.3-0.5 → Low risk, probably normal
+    # Score < 0.3 → Normal transaction
+}
 
-def train_xgboost_model(df: pd.DataFrame) -> Tuple[xgb.XGBClassifier, StandardScaler, Dict]:
+
+def train_isolation_forest(df: pd.DataFrame, contamination: float = 0.05) -> Tuple[IsolationForest, RobustScaler, Dict]:
     """
-    Train XGBoost classifier for fraud detection
+    Train Isolation Forest for unsupervised anomaly detection
+    
+    How Isolation Forest works:
+    1. Randomly selects a feature and a split value
+    2. Recursively partitions data until each point is isolated
+    3. Anomalies require fewer splits (shorter path length)
+    4. Normal points require more splits (longer path length)
+    
+    Args:
+        df: DataFrame with transaction features
+        contamination: Expected proportion of anomalies (default 5%)
+                      This helps calibrate the decision threshold
     
     Returns:
-        model: Trained XGBoost classifier
-        scaler: Fitted StandardScaler
-        metrics: Dictionary of evaluation metrics
+        model: Trained Isolation Forest
+        scaler: Fitted RobustScaler (better for outliers than StandardScaler)
+        metrics: Dictionary of model statistics
     """
     print("\n" + "="*60)
-    print("TRAINING XGBOOST MODEL")
+    print("TRAINING ISOLATION FOREST (Unsupervised Anomaly Detection)")
     print("="*60)
     
-    # Prepare features and target
+    # Prepare features
     X = df[FEATURE_COLUMNS].copy()
-    y = df['is_fraud'].copy()
     
     # Handle any NaN values
     X = X.fillna(0)
     
-    # Scale features
-    scaler = StandardScaler()
+    print(f"\nDataset size: {len(X)} transactions")
+    print(f"Features: {len(FEATURE_COLUMNS)}")
+    print(f"Expected contamination rate: {contamination:.1%}")
+    
+    # Use RobustScaler - better for data with outliers
+    # It uses median and IQR instead of mean and std
+    scaler = RobustScaler()
     X_scaled = scaler.fit_transform(X)
     
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y, test_size=0.2, random_state=42, stratify=y
-    )
+    # Train Isolation Forest
+    # Key parameters:
+    # - n_estimators: Number of isolation trees (more = more stable)
+    # - max_samples: Samples per tree (smaller = more diverse trees)
+    # - contamination: Expected anomaly rate (affects threshold only)
+    # - max_features: Features per tree (more randomness = better isolation)
+    # - random_state: For reproducibility
     
-    print(f"\nTraining set: {len(X_train)} samples")
-    print(f"Test set: {len(X_test)} samples")
-    print(f"Fraud ratio in training: {y_train.mean():.2%}")
+    print("\nTraining Isolation Forest...")
+    print("  - Building 200 isolation trees")
+    print("  - Each tree uses 256 samples (or all if less)")
+    print("  - Using all 20 features per tree")
     
-    # Calculate class weight for imbalanced data
-    scale_pos_weight = len(y_train[y_train == 0]) / max(len(y_train[y_train == 1]), 1)
-    
-    # Train XGBoost
-    model = xgb.XGBClassifier(
-        n_estimators=100,
-        max_depth=5,
-        learning_rate=0.1,
-        scale_pos_weight=scale_pos_weight,
+    model = IsolationForest(
+        n_estimators=200,           # Number of trees in the forest
+        max_samples='auto',          # Use 256 or n_samples, whichever is smaller
+        contamination=contamination, # Expected proportion of outliers
+        max_features=1.0,            # Use all features
+        bootstrap=False,             # Sample without replacement
+        n_jobs=-1,                   # Use all CPU cores
         random_state=42,
-        eval_metric='logloss'
+        verbose=0
     )
     
-    model.fit(X_train, y_train)
+    model.fit(X_scaled)
     
-    # Evaluate
-    y_pred = model.predict(X_test)
-    y_prob = model.predict_proba(X_test)[:, 1]
+    # Get anomaly scores for training data
+    # score_samples returns negative values (lower = more anomalous)
+    # We convert to 0-1 scale where higher = more anomalous
+    raw_scores = model.score_samples(X_scaled)
     
-    print("\n" + "-"*40)
-    print("MODEL EVALUATION")
-    print("-"*40)
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred, target_names=['Legitimate', 'Fraud']))
+    # Convert to 0-1 anomaly score
+    # Raw scores typically range from -0.5 (anomaly) to 0.0 (normal)
+    # We transform: anomaly_score = 1 - (raw_score - min) / (max - min)
+    min_score = raw_scores.min()
+    max_score = raw_scores.max()
+    anomaly_scores = (max_score - raw_scores) / (max_score - min_score)
     
-    print("\nConfusion Matrix:")
-    cm = confusion_matrix(y_test, y_pred)
-    print(f"  TN={cm[0][0]}, FP={cm[0][1]}")
-    print(f"  FN={cm[1][0]}, TP={cm[1][1]}")
+    # Add scores to dataframe for analysis
+    df_with_scores = df.copy()
+    df_with_scores['anomaly_score'] = anomaly_scores
+    df_with_scores['is_anomaly'] = model.predict(X_scaled) == -1  # -1 = anomaly
     
-    # ROC-AUC
-    if len(set(y_test)) > 1:
-        auc_score = roc_auc_score(y_test, y_prob)
-        print(f"\nROC-AUC Score: {auc_score:.4f}")
-    else:
-        auc_score = 0.5
+    # Analyze results
+    n_anomalies = df_with_scores['is_anomaly'].sum()
+    actual_contamination = n_anomalies / len(df_with_scores)
     
-    # Feature importance
-    print("\nTop 10 Feature Importances:")
-    importance_df = pd.DataFrame({
-        'feature': FEATURE_COLUMNS,
-        'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False)
+    print("\n" + "-"*50)
+    print("TRAINING RESULTS")
+    print("-"*50)
+    print(f"\nAnomalies detected: {n_anomalies} ({actual_contamination:.1%})")
+    print(f"Normal transactions: {len(df_with_scores) - n_anomalies}")
     
-    for _, row in importance_df.head(10).iterrows():
-        print(f"  {row['feature']}: {row['importance']:.4f}")
+    # Score distribution
+    print(f"\nAnomaly Score Distribution:")
+    print(f"  Min:    {anomaly_scores.min():.4f}")
+    print(f"  25%:    {np.percentile(anomaly_scores, 25):.4f}")
+    print(f"  Median: {np.percentile(anomaly_scores, 50):.4f}")
+    print(f"  75%:    {np.percentile(anomaly_scores, 75):.4f}")
+    print(f"  Max:    {anomaly_scores.max():.4f}")
+    
+    # Risk categories
+    high_risk = (anomaly_scores >= THRESHOLDS['high_risk']).sum()
+    medium_risk = ((anomaly_scores >= THRESHOLDS['medium_risk']) & 
+                   (anomaly_scores < THRESHOLDS['high_risk'])).sum()
+    low_risk = ((anomaly_scores >= THRESHOLDS['low_risk']) & 
+                (anomaly_scores < THRESHOLDS['medium_risk'])).sum()
+    normal = (anomaly_scores < THRESHOLDS['low_risk']).sum()
+    
+    print(f"\nRisk Categories:")
+    print(f"  🔴 High Risk (≥{THRESHOLDS['high_risk']}):    {high_risk} ({high_risk/len(df)*100:.1f}%)")
+    print(f"  🟠 Medium Risk ({THRESHOLDS['medium_risk']}-{THRESHOLDS['high_risk']}): {medium_risk} ({medium_risk/len(df)*100:.1f}%)")
+    print(f"  🟡 Low Risk ({THRESHOLDS['low_risk']}-{THRESHOLDS['medium_risk']}):    {low_risk} ({low_risk/len(df)*100:.1f}%)")
+    print(f"  🟢 Normal (<{THRESHOLDS['low_risk']}):       {normal} ({normal/len(df)*100:.1f}%)")
+    
+    # Feature importance via permutation
+    importance_df = compute_feature_contributions(model, X_scaled, FEATURE_COLUMNS)
+    
+    print(f"\nTop 10 Most Important Features for Anomaly Detection:")
+    for i, (_, row) in enumerate(importance_df.head(10).iterrows()):
+        bar = "█" * int(row['importance'] * 50)
+        print(f"  {i+1}. {row['feature']}: {row['importance']:.4f} {bar}")
+    
+    # Analyze what makes anomalies different
+    if n_anomalies > 0:
+        print(f"\nAnomaly Characteristics (comparing anomalies vs normal):")
+        anomaly_data = df_with_scores[df_with_scores['is_anomaly']]
+        normal_data = df_with_scores[~df_with_scores['is_anomaly']]
+        
+        for feat in ['amount_zscore', 'amount_to_balance_ratio', 'is_new_payee', 
+                     'txn_count_24h', 'is_night_transaction', 'signature_score']:
+            if feat in df.columns:
+                anom_mean = anomaly_data[feat].mean()
+                norm_mean = normal_data[feat].mean()
+                diff = anom_mean - norm_mean
+                direction = "↑" if diff > 0 else "↓"
+                print(f"  {feat}: Anomaly={anom_mean:.2f}, Normal={norm_mean:.2f} ({direction}{abs(diff):.2f})")
     
     metrics = {
-        'accuracy': (y_pred == y_test).mean(),
-        'auc_roc': auc_score,
-        'n_train': len(X_train),
-        'n_test': len(X_test)
+        'n_samples': len(df),
+        'n_anomalies': n_anomalies,
+        'contamination_rate': actual_contamination,
+        'score_min': float(anomaly_scores.min()),
+        'score_max': float(anomaly_scores.max()),
+        'score_mean': float(anomaly_scores.mean()),
+        'score_std': float(anomaly_scores.std()),
+        'high_risk_count': high_risk,
+        'medium_risk_count': medium_risk,
+        'thresholds': THRESHOLDS,
+        'feature_importance': importance_df.to_dict('records')
     }
     
     return model, scaler, metrics
+
+
+def predict_anomaly_score(model: IsolationForest, scaler: RobustScaler, 
+                          features: Dict) -> Tuple[float, str, List[str]]:
+    """
+    Predict anomaly score for a single transaction
+    
+    Args:
+        model: Trained Isolation Forest model
+        scaler: Fitted scaler
+        features: Dictionary of feature values
+    
+    Returns:
+        score: Anomaly score (0-1, higher = more anomalous)
+        risk_level: 'high_risk', 'medium_risk', 'low_risk', or 'normal'
+        reasons: List of features contributing to anomaly
+    """
+    # Prepare feature vector
+    X = np.array([[features.get(col, 0) for col in FEATURE_COLUMNS]])
+    X_scaled = scaler.transform(X)
+    
+    # Get raw score and convert to 0-1 scale
+    raw_score = model.score_samples(X_scaled)[0]
+    
+    # Convert raw score to anomaly score
+    # Isolation Forest scores: more negative = more anomalous
+    # Typical range: -0.5 (anomaly) to 0.0 (normal)
+    # We map to 0-1 where 1 = most anomalous
+    anomaly_score = max(0, min(1, 0.5 - raw_score))
+    
+    # Determine risk level
+    if anomaly_score >= THRESHOLDS['high_risk']:
+        risk_level = 'high_risk'
+    elif anomaly_score >= THRESHOLDS['medium_risk']:
+        risk_level = 'medium_risk'
+    elif anomaly_score >= THRESHOLDS['low_risk']:
+        risk_level = 'low_risk'
+    else:
+        risk_level = 'normal'
+    
+    # Find contributing factors (features with extreme values)
+    reasons = []
+    if features.get('amount_zscore', 0) > 2:
+        reasons.append(f"Unusual amount (z-score: {features['amount_zscore']:.2f})")
+    if features.get('is_new_payee', 0) == 1 and features.get('amount_to_max_ratio', 0) > 1.5:
+        reasons.append("Large payment to new payee")
+    if features.get('is_night_transaction', 0) == 1:
+        reasons.append("Night-time transaction")
+    if features.get('txn_count_24h', 0) > 3:
+        reasons.append(f"High velocity ({features['txn_count_24h']} txns in 24h)")
+    if features.get('is_dormant', 0) == 1:
+        reasons.append("Previously dormant account")
+    if features.get('signature_score', 100) < 70:
+        reasons.append(f"Low signature confidence ({features['signature_score']:.0f}%)")
+    if features.get('amount_to_balance_ratio', 0) > 0.8:
+        reasons.append(f"High amount relative to balance ({features['amount_to_balance_ratio']*100:.0f}%)")
+    
+    return anomaly_score, risk_level, reasons
 
 
 # ============================================================
 # SAVE MODEL
 # ============================================================
 
-def save_model(model: xgb.XGBClassifier, scaler: StandardScaler, output_dir: str):
-    """Save trained model and scaler"""
+def save_model(model: IsolationForest, scaler: RobustScaler, metrics: Dict, output_dir: str):
+    """Save trained model, scaler, and metadata"""
     os.makedirs(output_dir, exist_ok=True)
     
-    model_path = os.path.join(output_dir, 'fraud_model.pkl')
-    scaler_path = os.path.join(output_dir, 'fraud_scaler.pkl')
-    features_path = os.path.join(output_dir, 'fraud_features.txt')
+    model_path = os.path.join(output_dir, 'anomaly_model.pkl')
+    scaler_path = os.path.join(output_dir, 'anomaly_scaler.pkl')
+    features_path = os.path.join(output_dir, 'anomaly_features.txt')
+    metadata_path = os.path.join(output_dir, 'anomaly_metadata.pkl')
     
     # Save model
     joblib.dump(model, model_path)
-    print(f"\nModel saved to: {model_path}")
+    print(f"\n✓ Model saved to: {model_path}")
     
     # Save scaler
     joblib.dump(scaler, scaler_path)
-    print(f"Scaler saved to: {scaler_path}")
+    print(f"✓ Scaler saved to: {scaler_path}")
     
     # Save feature list
     with open(features_path, 'w') as f:
         f.write('\n'.join(FEATURE_COLUMNS))
-    print(f"Features saved to: {features_path}")
+    print(f"✓ Features saved to: {features_path}")
+    
+    # Save metadata (thresholds, metrics, etc.)
+    metadata = {
+        'model_type': 'IsolationForest',
+        'feature_columns': FEATURE_COLUMNS,
+        'thresholds': THRESHOLDS,
+        'metrics': metrics,
+        'trained_at': datetime.now().isoformat()
+    }
+    joblib.dump(metadata, metadata_path)
+    print(f"✓ Metadata saved to: {metadata_path}")
+
+
+def load_model(model_dir: str) -> Tuple[IsolationForest, RobustScaler, Dict]:
+    """Load trained model, scaler, and metadata"""
+    model_path = os.path.join(model_dir, 'anomaly_model.pkl')
+    scaler_path = os.path.join(model_dir, 'anomaly_scaler.pkl')
+    metadata_path = os.path.join(model_dir, 'anomaly_metadata.pkl')
+    
+    model = joblib.load(model_path)
+    scaler = joblib.load(scaler_path)
+    metadata = joblib.load(metadata_path)
+    
+    return model, scaler, metadata
 
 
 # ============================================================
@@ -591,7 +684,8 @@ def save_model(model: xgb.XGBClassifier, scaler: StandardScaler, output_dir: str
 
 def main():
     print("="*60)
-    print("FRAUD DETECTION MODEL TRAINING")
+    print("UNSUPERVISED ANOMALY DETECTION MODEL TRAINING")
+    print("Using Isolation Forest - No labeled data required!")
     print("="*60)
     print(f"Started at: {datetime.now()}")
     
@@ -618,94 +712,204 @@ def main():
         df = create_synthetic_dataset()
     
     print(f"\nDataset shape: {df.shape}")
-    print(f"Features: {FEATURE_COLUMNS}")
+    print(f"Features: {len(FEATURE_COLUMNS)}")
     
-    # Create synthetic labels
-    df = create_synthetic_labels(df)
+    # Analyze data distribution
+    stats = analyze_data_distribution(df)
     
-    # Augment if needed (ensure at least 30% fraud for balanced training)
-    df = augment_fraud_samples(df, target_fraud_ratio=0.3)
-    
-    # Train model
-    model, scaler, metrics = train_xgboost_model(df)
+    # Train Isolation Forest (unsupervised - no labels!)
+    # contamination=0.05 means we expect ~5% anomalies
+    # Adjust based on your domain knowledge
+    model, scaler, metrics = train_isolation_forest(df, contamination=0.05)
     
     # Save model
     output_dir = os.path.dirname(os.path.abspath(__file__))
-    save_model(model, scaler, output_dir)
+    save_model(model, scaler, metrics, output_dir)
+    
+    # Demo: Test prediction on a sample transaction
+    print("\n" + "="*60)
+    print("DEMO: Testing anomaly detection")
+    print("="*60)
+    
+    # Test a normal transaction
+    normal_txn = {
+        'amount_zscore': 0.5,
+        'amount_to_max_ratio': 0.6,
+        'amount_to_balance_ratio': 0.2,
+        'is_above_max': 0,
+        'is_new_payee': 0,
+        'payee_frequency': 5,
+        'unique_payee_ratio': 0.4,
+        'hour_of_day': 14,
+        'day_of_week': 2,
+        'is_unusual_hour': 0,
+        'is_weekend': 0,
+        'is_night_transaction': 0,
+        'txn_count_24h': 1,
+        'txn_count_7d': 3,
+        'days_since_last_txn': 2,
+        'is_dormant': 0,
+        'account_age_days': 500,
+        'bounce_rate': 0.01,
+        'avg_balance': 100000,
+        'signature_score': 92
+    }
+    
+    score, risk, reasons = predict_anomaly_score(model, scaler, normal_txn)
+    print(f"\nNormal Transaction Test:")
+    print(f"  Anomaly Score: {score:.3f}")
+    print(f"  Risk Level: {risk}")
+    print(f"  Reasons: {reasons if reasons else 'None - appears normal'}")
+    
+    # Test a suspicious transaction
+    suspicious_txn = {
+        'amount_zscore': 4.5,
+        'amount_to_max_ratio': 2.5,
+        'amount_to_balance_ratio': 0.9,
+        'is_above_max': 1,
+        'is_new_payee': 1,
+        'payee_frequency': 0,
+        'unique_payee_ratio': 1.0,
+        'hour_of_day': 3,
+        'day_of_week': 0,
+        'is_unusual_hour': 1,
+        'is_weekend': 0,
+        'is_night_transaction': 1,
+        'txn_count_24h': 5,
+        'txn_count_7d': 8,
+        'days_since_last_txn': 95,
+        'is_dormant': 1,
+        'account_age_days': 100,
+        'bounce_rate': 0.15,
+        'avg_balance': 50000,
+        'signature_score': 55
+    }
+    
+    score, risk, reasons = predict_anomaly_score(model, scaler, suspicious_txn)
+    print(f"\nSuspicious Transaction Test:")
+    print(f"  Anomaly Score: {score:.3f}")
+    print(f"  Risk Level: {risk}")
+    print(f"  Reasons: {', '.join(reasons)}")
     
     print("\n" + "="*60)
     print("TRAINING COMPLETE")
     print("="*60)
     print(f"Finished at: {datetime.now()}")
-    print(f"Model accuracy: {metrics['accuracy']:.2%}")
-    print(f"ROC-AUC: {metrics['auc_roc']:.4f}")
+    print(f"\nModel files saved in: {output_dir}")
+    print(f"  - anomaly_model.pkl (Isolation Forest)")
+    print(f"  - anomaly_scaler.pkl (RobustScaler)")
+    print(f"  - anomaly_features.txt (Feature list)")
+    print(f"  - anomaly_metadata.pkl (Thresholds & metrics)")
+    
+    print("\n📊 Key Metrics:")
+    print(f"  - Samples trained on: {metrics['n_samples']}")
+    print(f"  - Anomalies detected: {metrics['n_anomalies']} ({metrics['contamination_rate']:.1%})")
+    print(f"  - High-risk transactions: {metrics['high_risk_count']}")
+    
+    print("\n🎯 Next Steps:")
+    print("  1. Use load_model() to load the trained model")
+    print("  2. Extract features for new transactions")
+    print("  3. Call predict_anomaly_score() to get risk assessment")
+    print("  4. Integrate with validationService.ts for real-time scoring")
 
 
-def create_synthetic_dataset(n_samples: int = 200) -> pd.DataFrame:
+def create_synthetic_dataset(n_samples: int = 500) -> pd.DataFrame:
     """
     Create synthetic dataset when database is not available
     
-    Generates realistic transaction patterns for demo/testing
+    Generates realistic transaction patterns for training Isolation Forest.
+    Most transactions are "normal" with a few naturally occurring outliers.
+    No fraud labels needed - the model learns what's normal and flags deviations.
     """
     print(f"\nGenerating {n_samples} synthetic transactions...")
+    print("(Creating realistic patterns with natural variation)")
     
     np.random.seed(42)
     
     data = []
     
+    # Create 5 different customer profiles (different "normal" behaviors)
+    customer_profiles = [
+        {'avg_amt': 25000, 'std_amt': 5000, 'usual_hour': 10, 'txn_freq': 2},   # Low-value, morning
+        {'avg_amt': 75000, 'std_amt': 15000, 'usual_hour': 14, 'txn_freq': 3},  # Medium-value, afternoon
+        {'avg_amt': 150000, 'std_amt': 30000, 'usual_hour': 11, 'txn_freq': 1}, # High-value, less frequent
+        {'avg_amt': 50000, 'std_amt': 20000, 'usual_hour': 15, 'txn_freq': 5},  # Variable, high frequency
+        {'avg_amt': 100000, 'std_amt': 10000, 'usual_hour': 9, 'txn_freq': 2},  # Consistent, morning
+    ]
+    
     for i in range(n_samples):
-        # Random account characteristics
+        # Assign to a customer profile
         account_id = np.random.randint(1, 6)
-        avg_amount = np.random.uniform(10000, 100000)
-        std_amount = avg_amount * 0.3
+        profile = customer_profiles[account_id - 1]
         
-        # Transaction amount
-        amount = np.random.normal(avg_amount, std_amount)
-        amount = max(1000, amount)  # Minimum 1000
+        # Generate mostly normal transactions with occasional natural outliers
+        is_outlier = np.random.random() < 0.03  # ~3% natural outliers
         
-        # Calculate features
+        if is_outlier:
+            # Natural outlier (not fraud, just unusual)
+            amount = np.random.uniform(profile['avg_amt'] * 2, profile['avg_amt'] * 4)
+            hour = np.random.choice([2, 3, 4, 22, 23])  # Unusual hours
+            is_new_payee = 1
+        else:
+            # Normal transaction
+            amount = np.random.normal(profile['avg_amt'], profile['std_amt'])
+            amount = max(1000, amount)  # Minimum 1000
+            hour = int(np.random.normal(profile['usual_hour'], 2)) % 24
+            is_new_payee = np.random.choice([0, 1], p=[0.8, 0.2])
+        
+        # Calculate features based on profile
+        amount_zscore = (amount - profile['avg_amt']) / profile['std_amt']
+        
         features = {
             'transaction_id': i + 1,
             'account_id': account_id,
             'amount': amount,
             'receiver_name': f'Receiver_{np.random.randint(1, 20)}',
             
-            # Amount features
-            'amount_zscore': np.random.normal(0, 1),
-            'amount_to_max_ratio': np.random.uniform(0.3, 1.5),
-            'amount_to_balance_ratio': np.random.uniform(0.05, 0.5),
-            'is_above_max': np.random.choice([0, 1], p=[0.9, 0.1]),
+            # Amount features (4)
+            'amount_zscore': amount_zscore,
+            'amount_to_max_ratio': amount / (profile['avg_amt'] + 2 * profile['std_amt']),
+            'amount_to_balance_ratio': amount / np.random.uniform(200000, 500000),
+            'is_above_max': 1 if amount_zscore > 2 else 0,
             
-            # Payee features
-            'is_new_payee': np.random.choice([0, 1], p=[0.7, 0.3]),
-            'payee_frequency': np.random.randint(0, 10),
-            'unique_payee_ratio': np.random.uniform(0.3, 0.8),
+            # Payee features (3)
+            'is_new_payee': is_new_payee,
+            'payee_frequency': np.random.randint(0, 10) if not is_new_payee else 0,
+            'unique_payee_ratio': np.random.uniform(0.3, 0.7),
             
-            # Time features
-            'hour_of_day': np.random.randint(0, 24),
+            # Time features (5)
+            'hour_of_day': hour,
             'day_of_week': np.random.randint(0, 7),
-            'is_unusual_hour': np.random.choice([0, 1], p=[0.8, 0.2]),
-            'is_weekend': np.random.choice([0, 1], p=[0.7, 0.3]),
-            'is_night_transaction': np.random.choice([0, 1], p=[0.9, 0.1]),
+            'is_unusual_hour': 1 if hour < 6 or hour > 20 else 0,
+            'is_weekend': 1 if np.random.random() < 0.3 else 0,
+            'is_night_transaction': 1 if hour < 6 or hour > 21 else 0,
             
-            # Velocity features
-            'txn_count_24h': np.random.poisson(1),
-            'txn_count_7d': np.random.poisson(5),
-            'days_since_last_txn': np.random.randint(0, 30),
-            'is_dormant': np.random.choice([0, 1], p=[0.95, 0.05]),
+            # Velocity features (4)
+            'txn_count_24h': np.random.poisson(profile['txn_freq']),
+            'txn_count_7d': np.random.poisson(profile['txn_freq'] * 5),
+            'days_since_last_txn': np.random.randint(0, 15),
+            'is_dormant': 1 if np.random.random() < 0.02 else 0,
             
-            # Account health
-            'account_age_days': np.random.randint(30, 1000),
-            'bounce_rate': np.random.uniform(0, 0.1),
-            'avg_balance': np.random.uniform(50000, 500000),
+            # Account health (3)
+            'account_age_days': np.random.randint(100, 1500),
+            'bounce_rate': np.random.uniform(0, 0.05),
+            'avg_balance': np.random.uniform(100000, 500000),
             
-            # Signature score
-            'signature_score': np.random.uniform(70, 100)
+            # Signature score (1) - most are good
+            'signature_score': np.random.normal(88, 8)
         }
+        
+        # Clip signature score to valid range
+        features['signature_score'] = np.clip(features['signature_score'], 40, 100)
         
         data.append(features)
     
-    return pd.DataFrame(data)
+    df = pd.DataFrame(data)
+    
+    print(f"Generated {len(df)} transactions across {df['account_id'].nunique()} accounts")
+    print(f"Natural outliers (amount_zscore > 2): {(df['amount_zscore'] > 2).sum()}")
+    
+    return df
 
 
 if __name__ == '__main__':
