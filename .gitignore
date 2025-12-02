@@ -26,3 +26,4 @@ dist-ssr
 # OpenMemory - IDE/Assistant specific rules
 .cursor/rules/openmemory.mdc
 venv/
+best_siamese_transformer.pth
