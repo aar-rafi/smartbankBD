@@ -356,21 +356,40 @@ CREATE TABLE settlements (
 CREATE INDEX idx_settlements_cheque ON settlements(cheque_id);
 
 -- ============================================================
--- 15. TRANSACTIONS (Ledger)
+-- 15. TRANSACTIONS (Ledger) - Enhanced for Fraud Detection
 -- ============================================================
 CREATE TABLE transactions (
     transaction_id  SERIAL PRIMARY KEY,
     settlement_id   INT REFERENCES settlements(settlement_id),
     cheque_id       INT REFERENCES cheques(cheque_id),
     account_id      INT NOT NULL REFERENCES accounts(account_id),
+    
+    -- Basic Transaction Info
     txn_type        VARCHAR(10) NOT NULL,  -- debit, credit
     amount          NUMERIC(18,2) NOT NULL,
     balance_after   NUMERIC(18,2),
+    
+    -- Receiver/Payee Info (for fraud pattern detection)
+    receiver_name   VARCHAR(100),
+    receiver_account VARCHAR(20),
+    receiver_label  VARCHAR(15) DEFAULT 'unique',  -- unique, regular, too_freq
+    
+    -- Time & Location
+    txn_date        DATE,
+    txn_time        TIME,
+    branch_code     VARCHAR(20),
+    branch_name     VARCHAR(100),
+    
+    -- Frequency Tracking
+    txn_number      INT,  -- Transaction sequence number for this account
+    
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_transactions_account ON transactions(account_id);
 CREATE INDEX idx_transactions_cheque ON transactions(cheque_id);
+CREATE INDEX idx_transactions_receiver ON transactions(receiver_name);
+CREATE INDEX idx_transactions_date ON transactions(txn_date);
 
 -- ============================================================
 -- 16. CHEQUE_BOUNCES
