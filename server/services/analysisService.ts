@@ -74,9 +74,9 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
         // Now file is in `server/ml`. So `ml/signature_extract.py` relative to CWD `server`.
 
         const scriptPath = path.resolve("ml/signature_extract.py");
-        // Use the venv python executable
-        const pythonPath = path.resolve("database/venv/bin/python");
-        const command = `${pythonPath} "${scriptPath}" "${inputPath}" "${outputPath}" --json`;
+        // Use the configured python executable or fallback to venv
+        const pythonPath = process.env.PYTHON_PATH || path.resolve("database/venv/bin/python");
+        const command = `"${pythonPath}" "${scriptPath}" "${inputPath}" "${outputPath}" --json`;
 
         console.log("Running Python script:", command);
         const { stdout, stderr } = await execPromise(command);
