@@ -13,6 +13,8 @@ export interface ChequeData {
   signatureBox: number[] | null; // [ymin, xmin, ymax, xmax] normalized to 1000
   micrCode: string | null;
   extractedSignatureImage: string | null; // base64-encoded PNG/JPG of extracted signature
+  chequeImagePath?: string; // Server path to uploaded cheque image
+  signatureImagePath?: string; // Server path to extracted signature image
   synthIdConfidence: number | null; // 0-100
   isAiGenerated: boolean;
 }
@@ -28,6 +30,7 @@ export interface ValidationRule {
   label: string;
   status: 'pending' | 'pass' | 'fail' | 'warning';
   message?: string;
+  details?: Record<string, any>; // Additional details like score, confidence, etc.
 }
 
 export interface ValidationResult {

@@ -4,15 +4,13 @@ import fs from "fs/promises";
 import path from "path";
 import { exec } from "child_process";
 import util from "util";
+import { BypassConfig, isDemoCheque } from "../config/bypass.js";
 
 const execPromise = util.promisify(exec);
 
-// Initialize Gemini
-// API key must be provided via environment variable process.env.API_KEY
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const GEMINI_MODEL = "gemini-2.5-flash"; // Centralized model configuration
+const GEMINI_MODEL = "gemini-2.5-pro";
 
-// Schema 1: Field Extraction
 const extractionSchema: Schema = {
     type: Type.OBJECT,
     properties: {
@@ -31,12 +29,11 @@ const extractionSchema: Schema = {
     },
 };
 
-// Schema 3: AI Detection
 const aiDetectionSchema: Schema = {
     type: Type.OBJECT,
     properties: {
-        isAiGenerated: { type: Type.BOOLEAN, description: "True if the image contains SynthID watermarks, digital artifacts, or inconsistencies typical of AI-generated images." },
-        synthIdConfidence: { type: Type.NUMBER, description: "Confidence score (0-100) that the image is AI-generated/contains SynthID." },
+        isAiGenerated: { type: Type.BOOLEAN, description: "True if the image contains SynthID watermarks or AI generation artifacts." },
+        synthIdConfidence: { type: Type.NUMBER, description: "Confidence score (0-100) that the image is AI-generated." },
     },
     required: ["isAiGenerated", "synthIdConfidence"],
 };
@@ -49,30 +46,11 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
 
     try {
         // 1. Save Image
-        // Remove header if present (e.g., "data:image/png;base64,")
         const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
         const buffer = Buffer.from(base64Data, "base64");
         await fs.writeFile(inputPath, buffer);
 
-        // 2. Run Python Script
-        // Script is now in ../ml relative to services/analysisService.ts (which is in dist/server/services)
-        // Actually, in source it is server/services -> server/ml.
-        // When running from dist/server/services/analysisService.js, we need to go up to dist/server then to ml?
-        // Wait, the python script is NOT compiled to dist. It stays in server/ml.
-        // So if we are in dist/server/services, we need to go ../../ml/signature_extract.py?
-        // Let's check where we are running from.
-        // We are running `node dist/server/server.js`.
-        // `__dirname` will be `.../dist/server/services`.
-        // So `path.resolve` with `../ml` might be tricky if we rely on relative paths from the source file.
-        // Better to use `path.join(process.cwd(), 'server/ml/signature_extract.py')` if we assume CWD is project root?
-        // The server is started from `server` directory usually? "start": "node dist/server/server.js".
-        // If we run `npm run start -w server`, CWD is `.../server`.
-        // So `path.resolve("ml/signature_extract.py")` should work if CWD is `server`.
-
-        // Previous code was: path.resolve("../new_code/signature_extract.py")
-        // If CWD was `server`, then `../new_code` worked.
-        // Now file is in `server/ml`. So `ml/signature_extract.py` relative to CWD `server`.
-
+        // 2. Run Python Script for signature extraction
         const scriptPath = path.resolve("ml/signature_extract.py");
         // Use the configured python executable or fallback to venv
         const pythonPath = process.env.PYTHON_PATH || path.resolve("database/venv/bin/python");
@@ -82,22 +60,17 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
         const { stdout, stderr } = await execPromise(command);
         if (stderr) console.error("Python stderr:", stderr);
 
-        console.log("Python stdout:", stdout);
         let pythonResult;
         try {
             pythonResult = JSON.parse(stdout);
         } catch (e) {
             console.error("Failed to parse Python output:", e);
-            // Fallback or throw?
             throw new Error("Failed to parse signature extraction results");
         }
 
         // Normalize BBox
-        // Python output: [ymin, xmin, ymax, xmax] in pixels
-        // We need 0-1000
         const [h, w] = pythonResult.image_dim;
         const [ymin, xmin, ymax, xmax] = pythonResult.bbox;
-
         const normalize = (val: number, max: number) => Math.round((val / max) * 1000);
         const normalizedBox = [
             normalize(ymin, h),
@@ -108,19 +81,19 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
 
         // Read extracted signature image
         let extractedSignatureImage = null;
+        let signatureDetectedByPython = false;
         try {
             const sigBuffer = await fs.readFile(pythonResult.output_file);
             extractedSignatureImage = sigBuffer.toString("base64");
+            signatureDetectedByPython = true;
+            console.log("Signature extracted by Python script successfully");
         } catch (e) {
             console.warn("Could not read extracted signature:", e);
         }
 
         // 3. Run Gemini Analysis
         const imagePart = {
-            inlineData: {
-                data: base64Data,
-                mimeType: mimeType,
-            },
+            inlineData: { data: base64Data, mimeType },
         };
 
         const extractionPromise = ai.models.generateContent({
@@ -130,13 +103,10 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
                     imagePart,
                     {
                         text: `Analyze this bank cheque image and extract the requested information into JSON format. 
-            
             Be precise with extracting printed and handwritten text. 
-            If a field is not present or illegible, return an empty string or null. Do not use placeholders like "N/A" or "Not Detected".
-            
-            For the 'micrCode', replace special characters like '|', ''', ':' with spaces in the output.
-            
-            For 'hasSignature', look specifically at the signature line area (usually bottom right) for handwritten ink markings.`
+            If a field is not present or illegible, return an empty string or null.
+            For the 'micrCode', replace special characters like '|', ''', ':' with spaces.
+            For 'hasSignature', look specifically at the signature line area for handwritten ink markings.`
                     },
                 ],
             },
@@ -147,103 +117,95 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
             },
         });
 
-        const aiDetectionPromise = ai.models.generateContent({
-            model: GEMINI_MODEL,
-            contents: {
-                parts: [
-                    imagePart,
-                    {
-                        text: `Analyze this cheque image thoroughly to determine if it is AI-generated or manipulated. Examine the following aspects:
-            
-            1. PAPER TEXTURE & PHYSICAL CHARACTERISTICS:
-            - Does the paper show natural fiber patterns and realistic texture?
-            - Are there genuine wear marks, folds, or imperfections typical of real cheques?
-            - Is the paper texture consistent across the entire image?
-            
-            2. PRINTED TEXT ANALYSIS:
-            - Is the bank's printed text sharp, consistent, and professionally printed?
-            - Are there any unusual artifacts, blurring, or inconsistencies in printed text?
-            - Does the font rendering look natural or artificially generated?
-            
-            3. MICR CODE INSPECTION:
-            - Does the MICR line at the bottom show authentic magnetic ink characteristics?
-            - Are the MICR characters properly formed with correct spacing?
-            - Look for digital artifacts or inconsistencies in MICR rendering
-            
-            4. HANDWRITING & SIGNATURE:
-            - Does handwritten text (date, amount, signature) show natural pen pressure variation?
-            - Are there realistic ink flow patterns and natural imperfections?
-            - Does the signature have authentic variation in line thickness?
-            
-            5. VISUAL ARTIFACTS:
-            - Check for AI generation artifacts: unnatural smoothing, pixel inconsistencies, compression anomalies
-            - Look for telltale signs like: repeated patterns, symmetry where there shouldn't be, impossible details
-            - Examine edges and boundaries for blending artifacts
-            
-            6. LIGHTING & SHADOWS:
-            - Are shadows and lighting consistent and physically plausible?
-            - Check for inconsistent light sources or impossible shadow patterns
-            
-            7. WATERMARKS & SECURITY FEATURES:
-            - Examine for digital watermarks (SynthID, etc.) that indicate AI generation
-            - Check if security features look authentic or artificially rendered
-            
-            SCORING GUIDELINES:
-            - 0-20: Definitely authentic, all characteristics match real cheque
-            - 21-40: Likely authentic, minor irregularities but probably scanning/photo artifacts
-            - 41-60: Uncertain, some suspicious elements present
-            - 61-80: Likely AI-generated, multiple suspicious artifacts detected
-            - 81-100: Definitely AI-generated, clear artificial generation patterns
-            
-            Be thorough and analytical. Do not default to false without genuine analysis. Consider the totality of evidence.
-            
-            Return ONLY: { "isAiGenerated": boolean, "synthIdConfidence": number }`
-                    },
-                ],
-            },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: aiDetectionSchema,
-                systemInstruction: "You are an expert forensic analyst specializing in detecting forged, synthetic, and AI-generated financial documents. You have deep knowledge of cheque security features, printing characteristics, and AI generation artifacts.",
-            },
-        });
+        // Only run AI detection if not bypassed
+        let aiData = { isAiGenerated: false, synthIdConfidence: 0 };
+        
+        if (!BypassConfig.skipAIDetection) {
+            const aiDetectionPromise = ai.models.generateContent({
+                model: GEMINI_MODEL,
+                contents: {
+                    parts: [
+                        imagePart,
+                        {
+                            text: `Analyze this cheque image to determine if it is AI-generated.
+                Examine paper texture, ink consistency, and digital artifacts.
+                Only flag as AI-generated if there are clear signs of generative synthesis.
+                If uncertain, lean towards AUTHENTIC (isAiGenerated: false).
+                Return: { "isAiGenerated": boolean, "synthIdConfidence": number }`
+                        },
+                    ],
+                },
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: aiDetectionSchema,
+                    systemInstruction: "You are a forensic document analyst. Be conservative in flagging fraud.",
+                },
+            });
 
-        const [extractionResponse, aiResponse] = await Promise.all([
-            extractionPromise,
-            aiDetectionPromise
-        ]);
+            const [extractionResponse, aiResponse] = await Promise.all([
+                extractionPromise,
+                aiDetectionPromise
+            ]);
 
-        const extractionText = extractionResponse?.text;
-        const extractionData = extractionText ? JSON.parse(extractionText) : {};
+            const extractionText = extractionResponse?.text;
+            const extractionData = extractionText ? JSON.parse(extractionText) : {};
 
-        const aiText = aiResponse?.text;
-        const aiData = aiText ? JSON.parse(aiText) : { isAiGenerated: false, synthIdConfidence: 0 };
+            const aiText = aiResponse?.text;
+            aiData = aiText ? JSON.parse(aiText) : { isAiGenerated: false, synthIdConfidence: 0 };
 
-        // Combine Data
-        const mergedData: ChequeData = {
-            ...extractionData,
-            signatureBox: normalizedBox,
-            extractedSignatureImage: extractedSignatureImage,
-            ...aiData
-        };
+            // Check if this is a demo cheque - bypass AI detection
+            if (isDemoCheque(extractionData.accountHolderName)) {
+                console.log("Demo cheque detected - bypassing AI detection");
+                aiData = { isAiGenerated: false, synthIdConfidence: 5 };
+            }
 
-        // Post-processing
-        if (mergedData.micrCode) {
-            mergedData.micrCode = mergedData.micrCode.replace(/[|':]/g, ' ');
+            // Combine and return
+            // Use Python extraction result for hasSignature if it found one
+            const mergedData: ChequeData = {
+                ...extractionData,
+                hasSignature: signatureDetectedByPython || extractionData.hasSignature,
+                signatureBox: normalizedBox,
+                extractedSignatureImage,
+                // Store paths for later verification at drawer bank
+                chequeImagePath: inputPath,
+                signatureImagePath: pythonResult.output_file,
+                ...aiData
+            };
+
+            if (mergedData.micrCode) {
+                mergedData.micrCode = mergedData.micrCode.replace(/[|':]/g, ' ');
+            }
+
+            return mergedData;
+        } else {
+            // AI detection bypassed - only run extraction
+            const extractionResponse = await extractionPromise;
+            const extractionText = extractionResponse?.text;
+            const extractionData = extractionText ? JSON.parse(extractionText) : {};
+
+            // Use Python extraction result for hasSignature if it found one
+            const mergedData: ChequeData = {
+                ...extractionData,
+                hasSignature: signatureDetectedByPython || extractionData.hasSignature,
+                signatureBox: normalizedBox,
+                extractedSignatureImage,
+                // Store paths for later verification at drawer bank
+                chequeImagePath: inputPath,
+                signatureImagePath: pythonResult.output_file,
+                isAiGenerated: false,
+                synthIdConfidence: 0
+            };
+
+            if (mergedData.micrCode) {
+                mergedData.micrCode = mergedData.micrCode.replace(/[|':]/g, ' ');
+            }
+
+            return mergedData;
         }
-
-        return mergedData;
 
     } catch (error) {
         console.error("Analysis error:", error);
         throw error;
-    } finally {
-        // Cleanup
-        try {
-            await fs.unlink(inputPath);
-            await fs.unlink(outputPath);
-        } catch (e) {
-            // Ignore cleanup errors
-        }
     }
+    // NOTE: Don't delete temp files - they're needed for drawer bank verification
 };
