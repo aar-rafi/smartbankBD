@@ -97,18 +97,71 @@ const SignatureComparison: React.FC<SignatureComparisonProps> = ({ data, hasSign
 
             {/* Match Score / Status */}
             {data.matchScore !== undefined && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-blue-900">Match Score</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 h-2 bg-blue-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-blue-600"
-                        style={{ width: `${Math.min(100, Math.max(0, data.matchScore))}%` }}
-                      ></div>
+              <div className={`border rounded-lg p-4 ${
+                data.matchScore >= 70 ? 'bg-green-50 border-green-200' : 
+                data.matchScore >= 50 ? 'bg-yellow-50 border-yellow-200' : 
+                'bg-red-50 border-red-200'
+              }`}>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-indigo-600">
+                        psychology
+                      </span>
+                      <span className="text-sm font-bold text-gray-800">AI Signature Verification</span>
                     </div>
-                    <span className="text-sm font-bold text-blue-900">{data.matchScore.toFixed(1)}%</span>
+                    <div className="flex items-center gap-2">
+                      {data.matchScore >= 70 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                          <span className="material-symbols-outlined text-sm">check_circle</span>
+                          Match Confirmed
+                        </span>
+                      ) : data.matchScore >= 50 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                          <span className="material-symbols-outlined text-sm">warning</span>
+                          Review Needed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                          <span className="material-symbols-outlined text-sm">cancel</span>
+                          Mismatch Detected
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-700">Confidence Score</span>
+                    <div className="flex items-center gap-3">
+                      <div className="w-48 h-3 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-500 ${
+                            data.matchScore >= 70 ? 'bg-green-500' : 
+                            data.matchScore >= 50 ? 'bg-yellow-500' : 
+                            'bg-red-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(0, data.matchScore))}%` }}
+                        ></div>
+                      </div>
+                      <span className={`text-lg font-bold ${
+                        data.matchScore >= 70 ? 'text-green-700' : 
+                        data.matchScore >= 50 ? 'text-yellow-700' : 
+                        'text-red-700'
+                      }`}>
+                        {data.matchScore.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <p className="text-xs text-gray-600 mt-2">
+                    {data.matchScore >= 70 ? (
+                      '✓ Signatures match within acceptable threshold. Transaction can proceed.'
+                    ) : data.matchScore >= 50 ? (
+                      '⚠ Moderate similarity detected. Manual verification recommended.'
+                    ) : (
+                      '✗ Low similarity score. Potential signature fraud detected. Reject transaction.'
+                    )}
+                  </p>
                 </div>
               </div>
             )}
