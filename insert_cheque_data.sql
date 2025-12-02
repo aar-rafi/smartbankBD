@@ -56,9 +56,14 @@ SELECT
     a.holder_name,
     a.balance,
     a.status as account_status,
-    cl.cheque_number,
     cl.status as cheque_status
 FROM accounts a
 JOIN cheque_books cb ON cb.account_id = a.account_id
 LEFT JOIN cheque_leaves cl ON cl.cheque_book_id = cb.cheque_book_id
 WHERE a.account_number = '20503040200090711';
+
+-- Insert signature for the account
+INSERT INTO account_signatures (account_id, image_path, created_at)
+SELECT account_id, '/signatures/sig-1.jpg', NOW()
+FROM accounts
+WHERE account_number = '20503040200090711';
