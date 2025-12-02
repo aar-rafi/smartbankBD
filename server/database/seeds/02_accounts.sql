@@ -11,7 +11,12 @@ INSERT INTO accounts (account_id, bank_id, account_number, holder_name, account_
 (5, 2, '2001-00003', 'Eve Hossain', 'savings', 1000000.00, 'active'),
 (7, 4, '20503040200090711', 'A. H. M. MANSUR', 'current', 150000.00, 'active'),
 (8, 5, '4404001000379', 'SWASTIKA PANDIT', 'savings', 50000.00, 'active')
-ON CONFLICT (account_id) DO NOTHING;
+ON CONFLICT (account_number) DO UPDATE SET
+    bank_id = EXCLUDED.bank_id,
+    holder_name = EXCLUDED.holder_name,
+    account_type = EXCLUDED.account_type,
+    balance = EXCLUDED.balance,
+    status = EXCLUDED.status;
 
 -- Reset sequence to next available ID
 SELECT setval('accounts_account_id_seq', (SELECT MAX(account_id) FROM accounts));
