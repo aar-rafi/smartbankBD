@@ -481,8 +481,8 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                         </Card>
                     )}
 
-                    {/* Run Verification Button - for drawer bank when not yet verified */}
-                    {isDrawerBank && cheque.status === 'at_drawer_bank' && !verification && (
+                    {/* Run Verification Button - for drawer bank */}
+                    {isDrawerBank && (cheque.status === 'at_drawer_bank' || cheque.status === 'clearing') && (
                         <Card className="border-indigo-200 bg-indigo-50/50">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
