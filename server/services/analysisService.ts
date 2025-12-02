@@ -10,7 +10,7 @@ const execPromise = util.promisify(exec);
 // Initialize Gemini
 // API key must be provided via environment variable process.env.API_KEY
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const modelId = "gemini-2.5-pro"; // Using flash for speed, or pro for quality. Client used 2.5-pro? Let's check. Client used "gemini-2.5-pro". I'll stick to that if available, or "gemini-1.5-pro". "gemini-2.5-pro" might be a typo in client code or a very new model. I'll stick to what client had: "gemini-2.5-pro". Wait, "gemini-2.5-pro" doesn't exist publicly yet? Maybe it's "gemini-1.5-pro" or "gemini-2.0-flash". I'll check what client had. Client had "gemini-2.5-pro". If it works for them... but maybe it was a placeholder. I'll use "gemini-1.5-pro" to be safe, or "gemini-2.0-flash-exp". Actually, I'll use "gemini-1.5-pro" as a safe default for complex tasks. Or "gemini-2.0-flash" if available. I'll check the client code again. It said "gemini-2.5-pro". That's suspicious. I'll use "gemini-1.5-pro" to be safe.
+const GEMINI_MODEL = "gemini-2.5-pro"; // Centralized model configuration
 
 // Schema 1: Field Extraction
 const extractionSchema: Schema = {
@@ -124,7 +124,7 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
         };
 
         const extractionPromise = ai.models.generateContent({
-            model: "gemini-2.5-pro", // Using 1.5-pro as it is stable
+            model: GEMINI_MODEL,
             contents: {
                 parts: [
                     imagePart,
@@ -148,7 +148,7 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
         });
 
         const aiDetectionPromise = ai.models.generateContent({
-            model: "gemini-2.5-pro",
+            model: GEMINI_MODEL,
             contents: {
                 parts: [
                     imagePart,
