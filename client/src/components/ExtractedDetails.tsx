@@ -96,6 +96,24 @@ const SignatureIndicator: React.FC<{ hasSignature: boolean; signatureBox: number
   </div>
 );
 
+const AuthenticityBadge: React.FC<{ isAiGenerated: boolean; confidence: number | null }> = ({ isAiGenerated, confidence }) => {
+  if (isAiGenerated) {
+    return (
+      <div className="bg-purple-50 text-purple-900 border border-purple-200 p-4 rounded-xl flex items-start gap-3 mb-6 animate-pulse">
+        <span className="material-symbols-outlined text-3xl text-purple-600 mt-1">auto_awesome</span>
+        <div>
+          <p className="font-bold text-base text-purple-800">AI Generation / SynthID Detected</p>
+          <p className="text-sm text-purple-700 mt-1">
+            This image has been flagged as potentially AI-generated.
+            {confidence ? ` Confidence: ${confidence}%` : ''}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 const ExtractedDetails: React.FC<ExtractedDetailsProps> = ({ data, originalImage, onReset }) => {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -113,6 +131,9 @@ const ExtractedDetails: React.FC<ExtractedDetailsProps> = ({ data, originalImage
         </CardHeader>
 
         <CardContent className="p-6">
+          {/* Authenticity Warning */}
+          <AuthenticityBadge isAiGenerated={data.isAiGenerated} confidence={data.synthIdConfidence} />
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Bank Details Section */}
             <div className="space-y-1">
