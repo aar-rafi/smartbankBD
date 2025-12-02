@@ -1,10 +1,11 @@
+import os
 from google import genai
 from google.genai import types
 
 with open('../images/signatures/sig-1.jpg', 'rb') as f:
     image_bytes = f.read()
 
-client = genai.Client(api_key='AIzaSyDdkljOvozxjemXvPEH_eJSOby1HtzRQtc')
+client = genai.Client(api_key=os.getenv('API_KEY'))
 response = client.models.generate_content(
 model='gemini-2.5-flash',
 contents=[
