@@ -24,8 +24,11 @@ CORS(app)  # Enable CORS for all routes
 model_manager = ModelManager()
 
 # Configuration
-MODEL_PATH = os.environ.get('MODEL_PATH', os.path.join(os.path.dirname(__file__), 'dummy_model.pth'))
-PORT = int(os.environ.get('ML_SERVICE_PORT', 5001))
+# Default to the model in the server directory
+DEFAULT_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'best_siamese_transformer.pth')
+MODEL_PATH = os.environ.get('MODEL_PATH', DEFAULT_MODEL_PATH)
+# Use port 5005 to avoid conflict with frontend (5000, 5001)
+PORT = int(os.environ.get('ML_SERVICE_PORT', 5005))
 
 
 def base64_to_image(base64_string):

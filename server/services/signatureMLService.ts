@@ -3,7 +3,7 @@
  * Calls the Python Flask ML service for signature verification
  */
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5005';
 const ML_SERVICE_TIMEOUT = parseInt(process.env.ML_SERVICE_TIMEOUT || '10000', 10);
 
 interface SignatureMLResult {
