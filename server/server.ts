@@ -15,9 +15,11 @@ logBypassStatus();
 const app = express();
 const PORT = Number(process.env.SERVER_PORT || 3001);
 
-// Allow all origins in development so the frontend can run on any localhost port (Vite may pick 5000/5001).
-const corsOrigin: any = process.env.NODE_ENV === 'development' ? true : (process.env.FRONTEND_URL || 'http://localhost:3000');
-app.use(cors({ origin: corsOrigin, credentials: true }));
+// CORS configuration - Allow all origins in development
+app.use(cors({ 
+  origin: process.env.NODE_ENV === 'development' ? true : process.env.FRONTEND_URL || 'http://localhost:5000',
+  credentials: true 
+}));
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/api/health', async (req: Request, res: Response) => {
