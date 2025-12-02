@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { Upload, Image as ImageIcon } from 'lucide-react';
 
 interface ImageUploaderProps {
   onImageSelected: (file: File) => void;
@@ -27,9 +28,10 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected, isLoadin
 
   return (
     <div
-      className={`relative border-2 border-dashed rounded-xl p-10 text-center transition-colors duration-200 ${
-        isLoading ? 'border-gray-300 bg-gray-50 cursor-not-allowed' : 'border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50 cursor-pointer'
-      }`}
+      className={`relative border-2 border-dashed rounded-xl p-10 text-center transition-all duration-200 ${isLoading
+          ? 'border-muted bg-muted/50 cursor-not-allowed opacity-50'
+          : 'border-muted-foreground/25 hover:border-primary hover:bg-muted/30 cursor-pointer'
+        }`}
       onDrop={isLoading ? undefined : handleDrop}
       onDragOver={handleDragOver}
     >
@@ -41,14 +43,14 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected, isLoadin
         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
       />
       <div className="flex flex-col items-center justify-center space-y-4">
-        <div className="p-4 bg-indigo-100 rounded-full text-indigo-600">
-          <span className="material-symbols-outlined text-4xl">add_a_photo</span>
+        <div className={`p-4 rounded-full ${isLoading ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>
+          <Upload className="h-8 w-8" />
         </div>
         <div>
-          <p className="text-lg font-medium text-gray-700">
+          <p className="text-lg font-medium text-foreground">
             {isLoading ? "Processing..." : "Upload Cheque Image"}
           </p>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Drag and drop or click to browse
           </p>
         </div>
