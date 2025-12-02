@@ -52,8 +52,9 @@ def health_check():
     return jsonify({
         'status': 'ok',
         'service': 'signature-verification-ml',
-        'model_loaded': model_manager.model is not None,
-        'device': str(model_manager.device) if model_manager.device else 'not initialized'
+        'model_loaded': model_manager.is_model_loaded if hasattr(model_manager, 'is_model_loaded') else model_manager.model is not None,
+        'mock_mode': model_manager.is_mock_mode,
+        'device': str(model_manager.device) if model_manager.device else 'cpu (mock mode)'
     })
 
 
