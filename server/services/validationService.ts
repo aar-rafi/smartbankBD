@@ -51,7 +51,24 @@ const parseDateString = (input: string | null | undefined): Date | null => {
 export const validateChequeData = async (data: ChequeData): Promise<ValidationResult> => {
     const rules: ValidationRule[] = [];
 
-    // 1. Check Required Fields
+    // 1. Authenticity / AI Generation Check (High Priority)
+    if (data.isAiGenerated) {
+        rules.push({
+            id: 'authenticity',
+            label: 'Security: SynthID / AI Detection',
+            status: 'fail',
+            message: `AI-generated content detected (Confidence: ${data.synthIdConfidence ?? 'High'}%)`
+        });
+    } else {
+        rules.push({
+            id: 'authenticity',
+            label: 'Security: SynthID / AI Detection',
+            status: 'pass',
+            message: 'Image appears authentic (No AI artifacts detected)'
+        });
+    }
+
+    // 2. Check Required Fields
     const requiredFields: (keyof ChequeData)[] = ['bankName', 'chequeNumber', 'date', 'amountDigits', 'accountNumber'];
     const missingFields = requiredFields.filter(field => !data[field]);
 

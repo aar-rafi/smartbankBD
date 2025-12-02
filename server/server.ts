@@ -15,6 +15,7 @@ import cors from 'cors';
 
 
 import { validateChequeData } from './services/validationService.js';
+import { analyzeCheque } from './services/analysisService.js';
 import { testConnection } from './services/db.js';
 
 const app = express();
@@ -62,6 +63,22 @@ app.post('/api/account-details', async (req: Request, res: Response) => {
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Failed to fetch account details';
     console.error('Account lookup error:', error);
+    res.status(500).json({ success: false, error: { message: msg }, message: msg });
+  }
+});
+
+app.post('/api/analyze', async (req: Request, res: Response) => {
+  try {
+    const { image, mimeType } = req.body;
+    if (!image || !mimeType) {
+      return res.status(400).json({ error: { message: 'Missing image or mimeType' } });
+    }
+
+    const result = await analyzeCheque(image, mimeType);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Analysis failed';
+    console.error('Analysis error:', error);
     res.status(500).json({ success: false, error: { message: msg }, message: msg });
   }
 });
