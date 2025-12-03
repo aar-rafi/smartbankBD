@@ -522,6 +522,59 @@ const extractNumericChequeNumber = (chequeNumber: string): string => {
 };
 
 /**
+ * Parse date string and convert to YYYY-MM-DD format for PostgreSQL
+ * Handles various formats: DD-MM-YYYY, DD/MM/YYYY, MM-DD-YYYY, YYYY-MM-DD
+ */
+const parseAndFormatDate = (dateStr: string): string => {
+  if (!dateStr) return new Date().toISOString().split('T')[0];
+  
+  // Already in correct format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  
+  // Try DD-MM-YYYY or DD/MM/YYYY (common in Bangladesh)
+  let match = dateStr.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+  if (match) {
+    const [, day, month, year] = match;
+    // Validate the date makes sense
+    const dayNum = parseInt(day);
+    const monthNum = parseInt(month);
+    if (dayNum > 12 && monthNum <= 12) {
+      // Day > 12 means it's definitely DD-MM-YYYY
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    } else if (monthNum > 12 && dayNum <= 12) {
+      // Month > 12 means it's MM-DD-YYYY
+      return `${year}-${day.padStart(2, '0')}-${month.padStart(2, '0')}`;
+    } else {
+      // Ambiguous - assume DD-MM-YYYY (Bangladesh format)
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+  }
+  
+  // Try YYYY/MM/DD
+  match = dateStr.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (match) {
+    const [, year, month, day] = match;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  
+  // Fallback: try JavaScript Date parsing
+  try {
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().split('T')[0];
+    }
+  } catch (e) {
+    // Ignore
+  }
+  
+  // Last resort: return today's date
+  console.warn(`Could not parse date: ${dateStr}, using today's date`);
+  return new Date().toISOString().split('T')[0];
+};
+
+/**
  * Create a new cheque record when deposited at presenting bank
  */
 export const createCheque = async (data: {
@@ -673,7 +726,7 @@ export const createCheque = async (data: {
         data.payeeName,
         data.amount,
         data.amountWords || null,
-        data.issueDate,
+        parseAndFormatDate(data.issueDate),
         data.micrCode || null,
         data.chequeImagePath || null,
         data.signatureImagePath || null,
