@@ -40,6 +40,7 @@ export interface ValidationResult {
   riskScore?: number;
   riskLevel?: string;
   fraudDetection?: any; // Full fraud detection result from ML service
+  behaviourAnalysis?: BehaviourAnalysisResult | null; // Customer behaviour analysis
 }
 
 // ============================================================
@@ -117,11 +118,71 @@ export interface FraudDetectionResult {
   error?: string;
 }
 
+// ============================================================
+// CUSTOMER BEHAVIOUR PROFILE TYPES
+// ============================================================
+
+export interface BehaviourAnomaly {
+  type: string;
+  severity: 'low' | 'medium' | 'high';
+  description: string;
+  deviation: number;
+  threshold: number;
+  value: number | string | boolean;
+}
+
+export interface CustomerBehaviourProfile {
+  profileId: number;
+  accountId: number;
+  nationalId: string | null;
+  phone: string | null;
+  kycStatus: string;
+  
+  // Transaction patterns
+  avgTransactionAmt: number;
+  maxTransactionAmt: number;
+  minTransactionAmt: number;
+  stddevTransactionAmt: number;
+  totalTransactionCount: number;
+  monthlyAvgCount: number;
+  
+  // Cheque patterns
+  totalChequesIssued: number;
+  bouncedChequesCount: number;
+  bounceRate: number;
+  cancelledChequesCount: number;
+  
+  // Time patterns
+  usualDaysOfWeek: number[];
+  usualHours: number[];
+  avgDaysBetweenTxn: number;
+  daysSinceLastActivity: number;
+  
+  // Payee patterns
+  uniquePayeeCount: number;
+  regularPayees: string[];
+  newPayeeRate: number;
+  
+  // Risk
+  riskCategory: 'low' | 'medium' | 'high' | 'critical';
+  riskScore: number;
+}
+
+export interface BehaviourAnalysisResult {
+  profileFound: boolean;
+  profile: CustomerBehaviourProfile | null;
+  anomalies: BehaviourAnomaly[];
+  behaviourScore: number;  // 0-100 (100 = normal, 0 = highly anomalous)
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  recommendation: string;
+}
+
 export interface AnalysisState {
   status: 'idle' | 'analyzing' | 'validating' | 'success' | 'error';
   data: ChequeData | null;
   validation: ValidationResult | null;
   fraudDetection: FraudDetectionResult | null;
+  behaviourAnalysis?: BehaviourAnalysisResult | null;
   error: string | null;
   imagePreview: string | null;
 }

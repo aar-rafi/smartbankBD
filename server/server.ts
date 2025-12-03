@@ -456,6 +456,105 @@ app.delete('/api/cheques', async (req: Request, res: Response) => {
   }
 });
 
+// ============================================================
+// CUSTOMER BEHAVIOUR PROFILE ENDPOINTS
+// ============================================================
+
+// Get customer behaviour profile by account number
+app.get('/api/customer-profile/:accountNumber', async (req: Request, res: Response) => {
+  try {
+    const { getCustomerProfile } = await import('./services/customerBehaviourService.js');
+    const profile = await getCustomerProfile(req.params.accountNumber);
+    
+    if (!profile) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Customer profile not found',
+        message: 'No behaviour profile exists for this account'
+      });
+    }
+    
+    res.json({ success: true, profile });
+  } catch (error) {
+    console.error('Error fetching customer profile:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch customer profile' });
+  }
+});
+
+// Analyze behaviour for a potential transaction (without actually processing it)
+app.post('/api/customer-behaviour/analyze', async (req: Request, res: Response) => {
+  try {
+    const { detectBehaviourAnomalies } = await import('./services/customerBehaviourService.js');
+    const { accountNumber, amount, payeeName } = req.body;
+    
+    if (!accountNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing accountNumber in request body' 
+      });
+    }
+    
+    const analysis = await detectBehaviourAnomalies(accountNumber, {
+      accountNumber,
+      amount: amount || 0,
+      payeeName: payeeName || 'Unknown',
+      transactionHour: new Date().getHours(),
+      dayOfWeek: new Date().getDay()
+    });
+    
+    res.json({ success: true, analysis });
+  } catch (error) {
+    console.error('Error analyzing behaviour:', error);
+    res.status(500).json({ success: false, error: 'Failed to analyze behaviour' });
+  }
+});
+
+// Manually trigger profile recalculation for an account
+app.post('/api/customer-profile/:accountId/recalculate', async (req: Request, res: Response) => {
+  try {
+    const { recalculateProfile } = await import('./services/customerBehaviourService.js');
+    const accountId = Number(req.params.accountId);
+    
+    if (isNaN(accountId)) {
+      return res.status(400).json({ success: false, error: 'Invalid account ID' });
+    }
+    
+    const result = await recalculateProfile(accountId);
+    res.json({ ...result });
+  } catch (error) {
+    console.error('Error recalculating profile:', error);
+    res.status(500).json({ success: false, error: 'Failed to recalculate profile' });
+  }
+});
+
+// Batch recalculate all profiles (admin/maintenance)
+app.post('/api/customer-profiles/recalculate-all', async (req: Request, res: Response) => {
+  try {
+    const { recalculateAllProfiles } = await import('./services/customerBehaviourService.js');
+    const result = await recalculateAllProfiles();
+    res.json({ 
+      success: true, 
+      message: `Processed ${result.processed} profiles with ${result.errors} errors`,
+      ...result 
+    });
+  } catch (error) {
+    console.error('Error in batch recalculation:', error);
+    res.status(500).json({ success: false, error: 'Failed to recalculate profiles' });
+  }
+});
+
+// Update days_since_last_activity for all profiles (daily maintenance job)
+app.post('/api/customer-profiles/update-activity', async (req: Request, res: Response) => {
+  try {
+    const { updateDaysSinceLastActivity } = await import('./services/customerBehaviourService.js');
+    await updateDaysSinceLastActivity();
+    res.json({ success: true, message: 'Updated days_since_last_activity for all profiles' });
+  } catch (error) {
+    console.error('Error updating activity:', error);
+    res.status(500).json({ success: false, error: 'Failed to update activity' });
+  }
+});
+
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('Server error:', err);
   const msg = process.env.NODE_ENV === 'development' ? err?.message ?? 'Internal server error' : 'Internal server error';

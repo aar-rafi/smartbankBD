@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ImageUploader from './components/ImageUploader';
 import ExtractedDetails from './components/ExtractedDetails';
 import ValidationChecklist from './components/ValidationChecklist';
+import CustomerBehaviourProfile from './components/CustomerBehaviourProfile';
 import WorkflowStepper, { WorkflowStep } from './components/WorkflowStepper';
 import Dashboard from './components/Dashboard';
 import ManagerDashboard from './components/ManagerDashboard';
@@ -469,6 +470,9 @@ const AppContent: React.FC = () => {
                 )}
                 {state.status === 'success' && state.validation && (
                   <ValidationChecklist result={state.validation} />
+                )}
+                {state.status === 'success' && state.validation?.behaviourAnalysis && (
+                  <CustomerBehaviourProfile analysis={state.validation.behaviourAnalysis} />
                 )}
               </div>
             </div>

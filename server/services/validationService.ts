@@ -8,6 +8,11 @@ import {
 } from "./dbQueries.js";
 import { verifySignatureML } from "./signatureMLService.js";
 import { BypassConfig, isDemoCheque } from "../config/bypass.js";
+import { 
+    updateProfileAfterTransaction, 
+    detectBehaviourAnomalies,
+    type BehaviourAnalysisResult 
+} from "./customerBehaviourService.js";
 
 // Helper to extract numeric cheque number (strips prefixes like "MCG", "CHQ", etc.)
 const extractNumericChequeNumber = (chequeNumber: string | null | undefined): string | null => {
@@ -442,7 +447,64 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
         });
     }
 
-    // 7. Fraud/Behavior Analysis - Call the ML fraud detection service
+    // 7. Customer Behaviour Profile Analysis
+    let behaviourAnalysis: BehaviourAnalysisResult | null = null;
+    if (data.accountNumber) {
+        try {
+            behaviourAnalysis = await detectBehaviourAnomalies(data.accountNumber, {
+                accountNumber: data.accountNumber,
+                amount: data.amountDigits || 0,
+                payeeName: data.payeeName || 'Unknown',
+                transactionHour: new Date().getHours(),
+                dayOfWeek: new Date().getDay()
+            });
+
+            if (behaviourAnalysis.anomalies.length > 0) {
+                const highSeverity = behaviourAnalysis.anomalies.filter(a => a.severity === 'high');
+                const mediumSeverity = behaviourAnalysis.anomalies.filter(a => a.severity === 'medium');
+                
+                rules.push({
+                    id: 'behaviour-profile',
+                    label: 'Customer Behaviour Analysis',
+                    status: highSeverity.length >= 2 ? 'fail' : highSeverity.length > 0 ? 'warning' : mediumSeverity.length > 0 ? 'warning' : 'pass',
+                    message: behaviourAnalysis.recommendation,
+                    details: {
+                        behaviourScore: behaviourAnalysis.behaviourScore,
+                        riskLevel: behaviourAnalysis.riskLevel,
+                        anomalies: behaviourAnalysis.anomalies.map(a => ({
+                            type: a.type,
+                            severity: a.severity,
+                            description: a.description
+                        })),
+                        profileFound: behaviourAnalysis.profileFound
+                    }
+                });
+            } else {
+                rules.push({
+                    id: 'behaviour-profile',
+                    label: 'Customer Behaviour Analysis',
+                    status: 'pass',
+                    message: behaviourAnalysis.profileFound 
+                        ? 'Transaction matches customer\'s normal behaviour pattern'
+                        : 'New customer - building behaviour profile',
+                    details: {
+                        behaviourScore: behaviourAnalysis.behaviourScore,
+                        profileFound: behaviourAnalysis.profileFound
+                    }
+                });
+            }
+        } catch (behaviourError) {
+            console.error('Behaviour analysis error:', behaviourError);
+            rules.push({
+                id: 'behaviour-profile',
+                label: 'Customer Behaviour Analysis',
+                status: 'warning',
+                message: 'Behaviour analysis unavailable'
+            });
+        }
+    }
+
+    // 8. Fraud/Behavior Analysis - Call the ML fraud detection service
     let fraudRiskScore = 0;
     let fraudRiskLevel = 'low';
     let fraudRiskFactors: string[] = [];
@@ -506,6 +568,22 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
     const riskScore = fraudRiskScore;
     const riskLevel = fraudRiskLevel;
 
+    // Auto-update customer profile after successful validation
+    // This runs asynchronously and doesn't block the response
+    if (data.accountNumber && data.amountDigits && isValid) {
+        updateProfileAfterTransaction(data.accountNumber, {
+            accountNumber: data.accountNumber,
+            amount: data.amountDigits,
+            payeeName: data.payeeName || 'Unknown',
+            chequeNumber: data.chequeNumber || undefined,
+            transactionDate: new Date(),
+            transactionHour: new Date().getHours(),
+            dayOfWeek: new Date().getDay()
+        }).catch(err => {
+            console.error('[CustomerBehaviour] Profile update failed (non-blocking):', err);
+        });
+    }
+
     return { 
         isValid, 
         rules, 
@@ -513,7 +591,9 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
         riskScore,
         riskLevel,
         // Include full fraud detection result for UI
-        fraudDetection: fullFraudResult
+        fraudDetection: fullFraudResult,
+        // Include behaviour analysis for UI
+        behaviourAnalysis
     };
 };
 

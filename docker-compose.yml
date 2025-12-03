@@ -1,0 +1,238 @@
+# ============================================================
+# ChequeMate AI - Docker Compose Configuration
+# ============================================================
+# Complete containerized setup with all services
+#
+# Services:
+#   - postgres:        PostgreSQL database (port 5432)
+#   - ml-fraud:        Python fraud detection ML (port 5002)
+#   - ml-signature:    Python signature verification ML (port 5005)
+#   - backend:         Node.js Express API server (port 3001)
+#   - frontend-ibbl:   React frontend for IBBL bank (port 5000)
+#   - frontend-sonali: React frontend for Sonali bank (port 5001)
+#   - nginx:           Reverse proxy for all services (ports 80, 5000-5005)
+#
+# Usage:
+#   cp .env.docker .env           # Copy and configure environment
+#   docker-compose up -d          # Start all services
+#   docker-compose down           # Stop all services
+#   docker-compose logs -f        # View logs
+#   docker-compose ps             # Check status
+# ============================================================
+
+version: '3.8'
+
+services:
+  # ============================================================
+  # PostgreSQL Database
+  # ============================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: chequemate-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./chequemate_backup.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    ports:
+      - "${DB_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chequemate-network
+
+  # ============================================================
+  # ML Fraud Detection Service (Python Flask)
+  # ============================================================
+  ml-fraud:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ml
+    container_name: chequemate-ml-fraud
+    restart: unless-stopped
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - MODEL_PATH=/app/model/best_siamese_transformer.pth
+      - FLASK_ENV=${NODE_ENV:-production}
+    command: ["python", "fraud_prediction.py", "--server", "--port", "5002"]
+    ports:
+      - "${ML_FRAUD_SERVICE_PORT}:5002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - chequemate-network
+
+  # ============================================================
+  # ML Signature Verification Service (Python Flask)
+  # ============================================================
+  ml-signature:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ml
+    container_name: chequemate-ml-signature
+    restart: unless-stopped
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - MODEL_PATH=/app/model/best_siamese_transformer.pth
+      - FLASK_ENV=${NODE_ENV:-production}
+    command: ["python", "signature_service.py"]
+    ports:
+      - "${ML_SERVICE_PORT}:5005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - chequemate-network
+
+  # ============================================================
+  # Backend API Server (Node.js Express)
+  # ============================================================
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: chequemate-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - SERVER_PORT=${SERVER_PORT}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_SSL=${DB_SSL:-false}
+      - ML_SERVICE_URL=http://ml-signature:5005
+      - ML_SERVICE_PORT=5005
+      - ML_FRAUD_SERVICE_URL=http://ml-fraud:5002
+      - ML_FRAUD_SERVICE_PORT=5002
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - BYPASS_DATE_CHECK=${BYPASS_DATE_CHECK:-false}
+      - BYPASS_MICR_CHECK=${BYPASS_MICR_CHECK:-false}
+      - DEMO_MODE=${DEMO_MODE:-false}
+      - FRONTEND_URL=${FRONTEND_URL}
+    volumes:
+      - ./server/temp:/app/server/temp
+      - ./signatures:/app/signatures
+    ports:
+      - "${SERVER_PORT}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml-fraud:
+        condition: service_started
+      ml-signature:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - chequemate-network
+
+  # ============================================================
+  # Frontend - IBBL Bank Instance
+  # ============================================================
+  frontend-ibbl:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        - BANK_CODE=ibbl
+        - BANK_NAME=Islami Bank Bangladesh Limited
+        - VITE_PORT=5000
+        - GEMINI_API_KEY=${GEMINI_API_KEY}
+    container_name: chequemate-frontend-ibbl
+    restart: unless-stopped
+    ports:
+      - "5000:80"
+    depends_on:
+      - backend
+    networks:
+      - chequemate-network
+
+  # ============================================================
+  # Frontend - Sonali Bank Instance
+  # ============================================================
+  frontend-sonali:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        - BANK_CODE=sonali
+        - BANK_NAME=Sonali Bank Limited
+        - VITE_PORT=5001
+        - GEMINI_API_KEY=${GEMINI_API_KEY}
+    container_name: chequemate-frontend-sonali
+    restart: unless-stopped
+    ports:
+      - "5001:80"
+    depends_on:
+      - backend
+    networks:
+      - chequemate-network
+
+  # ============================================================
+  # Nginx Reverse Proxy
+  # ============================================================
+  nginx:
+    image: nginx:alpine
+    container_name: chequemate-nginx
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+      - frontend-ibbl
+      - frontend-sonali
+      - ml-fraud
+      - ml-signature
+    networks:
+      - chequemate-network
+
+# ============================================================
+# Networks
+# ============================================================
+networks:
+  chequemate-network:
+    driver: bridge
+
+# ============================================================
+# Volumes
+# ============================================================
+volumes:
+  postgres_data:
+    driver: local
