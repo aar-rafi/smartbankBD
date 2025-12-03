@@ -21,10 +21,15 @@ import {
     TrendingUp,
     AlertTriangle,
     Loader2,
-    Trash2
+    Trash2,
+    Wallet,
+    BanknoteIcon
 } from "lucide-react";
 import { ChequeDetails, fetchChequeDetails, updateChequeDecision, runDeepVerification, deleteCheque } from '@/services/api';
 import BACHPackage from './BACHPackage';
+import FraudDetection from './FraudDetection';
+import CustomerProfileTable from './CustomerProfileTable';
+import { FraudDetectionResult, RiskFactor, FeatureContribution } from '../../../shared/types';
 
 interface ChequeDetailsViewProps {
     chequeId: number;
@@ -48,6 +53,7 @@ interface VerificationResult {
     };
     riskScore?: number;
     riskLevel?: string;
+    fraudDetection?: FraudDetectionResult;
 }
 
 const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, currentBankCode, onBack }) => {
@@ -102,6 +108,7 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
         const map: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
             'received': { label: 'Received', color: 'bg-gray-100 text-gray-800', icon: <Clock className="h-4 w-4" /> },
             'validated': { label: 'Validated', color: 'bg-blue-100 text-blue-800', icon: <CheckCircle2 className="h-4 w-4" /> },
+            'validation_failed': { label: 'Validation Failed', color: 'bg-red-100 text-red-800', icon: <XCircle className="h-4 w-4" /> },
             'clearing': { label: 'In Transit (BACH)', color: 'bg-purple-100 text-purple-800', icon: <Clock className="h-4 w-4" /> },
             'at_drawer_bank': { label: 'Awaiting Verification', color: 'bg-indigo-100 text-indigo-800', icon: <AlertCircle className="h-4 w-4" /> },
             'approved': { label: 'Approved', color: 'bg-green-100 text-green-800', icon: <CheckCircle2 className="h-4 w-4" /> },
@@ -154,6 +161,100 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
     const statusInfo = getStatusInfo(cheque.status);
     const isDrawerBank = cheque.drawer_bank_code?.toLowerCase() === currentBankCode.toLowerCase();
     const canMakeDecision = isDrawerBank && cheque.status === 'at_drawer_bank';
+
+    // Convert verification data to FraudDetectionResult format
+    const convertToFraudDetectionResult = (verification: any): FraudDetectionResult | null => {
+        if (!verification) return null;
+
+        const riskFactors: RiskFactor[] = [];
+        const featureContributions: FeatureContribution[] = [];
+
+        // Convert behavior flags to risk factors
+        if (verification.behavior_flags && Array.isArray(verification.behavior_flags)) {
+            verification.behavior_flags.forEach((flag: string) => {
+                const flagMap: Record<string, { severity: 'low' | 'medium' | 'high', description: string }> = {
+                    'unusual_amount': { severity: 'high', description: 'Amount significantly different from usual transactions' },
+                    'new_payee': { severity: 'medium', description: 'Payment to a new/unknown payee' },
+                    'unusual_time': { severity: 'medium', description: 'Transaction processed at unusual hour' },
+                    'unusual_day': { severity: 'low', description: 'Transaction on unusual day' },
+                    'high_velocity': { severity: 'high', description: 'Too many cheques in short period' },
+                    'dormant_account': { severity: 'medium', description: 'Account was inactive for extended period' }
+                };
+
+                const flagInfo = flagMap[flag] || { severity: 'low' as const, description: flag.replace(/_/g, ' ') };
+                riskFactors.push({
+                    factor: flagInfo.description,
+                    severity: flagInfo.severity,
+                    description: flagInfo.description,
+                    value: true
+                });
+            });
+        }
+
+        // Add feature contributions
+        if (verification.signature_score !== null && verification.signature_score !== undefined) {
+            featureContributions.push({
+                name: 'Signature Score',
+                value: `${verification.signature_score}%`,
+                impact: verification.signature_score >= 70 ? 'normal' : verification.signature_score >= 50 ? 'medium' : 'high'
+            });
+        }
+
+        if (verification.fraud_risk_score !== null && verification.fraud_risk_score !== undefined) {
+            featureContributions.push({
+                name: 'Amount Analysis',
+                value: verification.amount_deviation || 0,
+                impact: Math.abs(verification.amount_deviation || 0) > 2 ? 'high' : 'normal'
+            });
+        }
+
+        featureContributions.push({
+            name: 'Payee History',
+            value: riskFactors.some(f => f.factor.includes('new/unknown')) ? 'New' : 'Known',
+            impact: riskFactors.some(f => f.factor.includes('new/unknown')) ? 'medium' : 'normal'
+        });
+
+        featureContributions.push({
+            name: 'Transaction Velocity',
+            value: verification.velocity_24h || 0,
+            impact: (verification.velocity_24h || 0) > 5 ? 'high' : 'normal'
+        });
+
+        featureContributions.push({
+            name: 'Account Health',
+            value: verification.is_dormant_account ? 'Dormant' : 'Active',
+            impact: verification.is_dormant_account ? 'medium' : 'normal'
+        });
+
+        const riskLevel = (verification.risk_level || 'low') as 'low' | 'medium' | 'high' | 'critical';
+        const fraudScore = verification.fraud_risk_score || 0;
+
+        let recommendation = '';
+        if (riskLevel === 'critical' || fraudScore >= 80) {
+            recommendation = 'REJECT - Critical fraud risk detected. Do not process this cheque.';
+        } else if (riskLevel === 'high' || fraudScore >= 60) {
+            recommendation = 'REVIEW - High fraud risk detected. Manual review required.';
+        } else if (riskLevel === 'medium' || fraudScore >= 40) {
+            recommendation = 'REVIEW - Moderate risk factors detected. Verify details carefully.';
+        } else {
+            recommendation = 'APPROVE - Low risk detected. Proceed with normal processing.';
+        }
+
+        return {
+            modelAvailable: true,
+            dataAvailable: true,
+            profileFound: true,
+            fraudScore: fraudScore,
+            riskLevel: riskLevel,
+            decision: verification.ai_decision === 'reject' ? 'reject' : verification.ai_decision === 'flag_for_review' ? 'review' : 'approve',
+            confidence: verification.ai_confidence || 85,
+            riskFactors: riskFactors,
+            featureContributions: featureContributions,
+            recommendation: recommendation
+        };
+    };
+
+    const fraudDetectionResult = convertToFraudDetectionResult(verification);
 
     // Timeline
     const timeline = [
@@ -251,6 +352,149 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                         </CardContent>
                     </Card>
 
+                    {/* Account & Funds Section - Only visible to drawer bank */}
+                    {isDrawerBank && (
+                        <Card className={`border-2 ${
+                            cheque.account_balance !== undefined && parseFloat(cheque.amount) > parseFloat(cheque.account_balance)
+                                ? 'border-red-300 bg-red-50/50'
+                                : 'border-green-300 bg-green-50/50'
+                        }`}>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="flex items-center gap-2">
+                                    <Wallet className="h-5 w-5" />
+                                    Account & Funds Verification
+                                </CardTitle>
+                                <CardDescription>
+                                    Drawer account details and balance check
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Account Holder</p>
+                                        <p className="font-medium">{cheque.drawer_name || 'N/A'}</p>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Account Type</p>
+                                        <p className="font-medium capitalize">{cheque.account_type || 'N/A'}</p>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Account Status</p>
+                                        <Badge variant={cheque.account_status === 'active' ? 'default' : 'destructive'}>
+                                            {cheque.account_status?.toUpperCase() || 'UNKNOWN'}
+                                        </Badge>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Account Age</p>
+                                        <p className="font-medium">
+                                            {cheque.account_opened_at 
+                                                ? `${Math.floor((Date.now() - new Date(cheque.account_opened_at).getTime()) / (1000 * 60 * 60 * 24))} days`
+                                                : 'N/A'}
+                                        </p>
+                                    </div>
+                                </div>
+                                
+                                {/* Balance vs Amount Comparison */}
+                                <div className="mt-4 pt-4 border-t">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-3 rounded-lg bg-white border">
+                                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                                <Wallet className="h-3 w-3" /> Available Balance
+                                            </p>
+                                            <p className="text-xl font-bold text-blue-600">
+                                                {cheque.account_balance !== undefined 
+                                                    ? formatCurrency(parseFloat(cheque.account_balance))
+                                                    : 'N/A'}
+                                            </p>
+                                        </div>
+                                        <div className="p-3 rounded-lg bg-white border">
+                                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                                <BanknoteIcon className="h-3 w-3" /> Cheque Amount
+                                            </p>
+                                            <p className="text-xl font-bold">
+                                                {formatCurrency(cheque.amount)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Funds Check Result */}
+                                    {cheque.account_balance !== undefined && (
+                                        <div className={`mt-3 p-3 rounded-lg flex items-center gap-2 ${
+                                            parseFloat(cheque.amount) > parseFloat(cheque.account_balance)
+                                                ? 'bg-red-100 text-red-800'
+                                                : 'bg-green-100 text-green-800'
+                                        }`}>
+                                            {parseFloat(cheque.amount) > parseFloat(cheque.account_balance) ? (
+                                                <>
+                                                    <XCircle className="h-5 w-5" />
+                                                    <div>
+                                                        <p className="font-semibold">INSUFFICIENT FUNDS</p>
+                                                        <p className="text-sm">
+                                                            Shortfall: {formatCurrency(parseFloat(cheque.amount) - parseFloat(cheque.account_balance))}
+                                                        </p>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <CheckCircle2 className="h-5 w-5" />
+                                                    <div>
+                                                        <p className="font-semibold">SUFFICIENT FUNDS</p>
+                                                        <p className="text-sm">
+                                                            Remaining after transaction: {formatCurrency(parseFloat(cheque.account_balance) - parseFloat(cheque.amount))}
+                                                        </p>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* Customer Behaviour Profile - Drawer Bank Only */}
+                    {isDrawerBank && cheque.drawer_account && (
+                        <CustomerProfileTable accountNumber={cheque.drawer_account} />
+                    )}
+
+                    {/* Run Verification Button - for drawer bank - MOVED TO TOP */}
+                    {isDrawerBank && (cheque.status === 'at_drawer_bank' || cheque.status === 'clearing') && (
+                        <Card className="border-indigo-200 bg-indigo-50/50">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Brain className="h-5 w-5 text-indigo-500" />
+                                    Deep Verification Required
+                                </CardTitle>
+                                <CardDescription>
+                                    As the drawer bank, you need to run AI verification before making a decision
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Button 
+                                    onClick={runVerification} 
+                                    className="w-full"
+                                    disabled={verifying}
+                                    size="lg"
+                                >
+                                    {verifying ? (
+                                        <>
+                                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                            Running AI Verification...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Shield className="h-5 w-5 mr-2" />
+                                            Run Deep Verification
+                                        </>
+                                    )}
+                                </Button>
+                                <p className="text-xs text-muted-foreground mt-3 text-center">
+                                    This will verify: Account status, Funds, Signature match, AI detection, Fraud analysis
+                                </p>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {/* Initial Validation Results */}
                     {validation && (
                         <Card>
@@ -319,6 +563,15 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                 )}
                             </CardContent>
                         </Card>
+                    )}
+
+                    {/* ML Fraud Detection - Drawer Bank Only */}
+                    {/* Prefer live verification result over stored data */}
+                    {isDrawerBank && (verificationResult?.fraudDetection || fraudDetectionResult) && (
+                        <FraudDetection 
+                            result={verificationResult?.fraudDetection || fraudDetectionResult!} 
+                            isLoading={false}
+                        />
                     )}
 
                     {/* AI Verification Results */}
@@ -477,44 +730,6 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                         </div>
                                     ))}
                                 </div>
-                            </CardContent>
-                        </Card>
-                    )}
-
-                    {/* Run Verification Button - for drawer bank */}
-                    {isDrawerBank && (cheque.status === 'at_drawer_bank' || cheque.status === 'clearing') && (
-                        <Card className="border-indigo-200 bg-indigo-50/50">
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <Brain className="h-5 w-5 text-indigo-500" />
-                                    Deep Verification Required
-                                </CardTitle>
-                                <CardDescription>
-                                    As the drawer bank, you need to run AI verification before making a decision
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <Button 
-                                    onClick={runVerification} 
-                                    className="w-full"
-                                    disabled={verifying}
-                                    size="lg"
-                                >
-                                    {verifying ? (
-                                        <>
-                                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                            Running AI Verification...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Shield className="h-5 w-5 mr-2" />
-                                            Run Deep Verification
-                                        </>
-                                    )}
-                                </Button>
-                                <p className="text-xs text-muted-foreground mt-3 text-center">
-                                    This will verify: Account status, Funds, Signature match, AI detection, Fraud analysis
-                                </p>
                             </CardContent>
                         </Card>
                     )}
@@ -717,14 +932,14 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                             )}
                                         </div>
                                         <div className="flex-1">
-                                            <p className={`font-medium ${item.done ? 'text-foreground' : 'text-muted-foreground'}`}>
-                                                {item.step}
+                                            <div className={`font-medium flex items-center gap-2 ${item.done ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                                <span>{item.step}</span>
                                                 {item.result && (
-                                                    <Badge className="ml-2" variant={item.result === 'Approved' ? 'default' : 'destructive'}>
+                                                    <Badge variant={item.result === 'Approved' ? 'default' : 'destructive'}>
                                                         {item.result}
                                                     </Badge>
                                                 )}
-                                            </p>
+                                            </div>
                                             {item.time && item.done && (
                                                 <p className="text-xs text-muted-foreground">
                                                     {new Date(item.time).toLocaleString()}

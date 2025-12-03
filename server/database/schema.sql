@@ -178,8 +178,8 @@ CREATE TABLE cheques (
     signature_image_path    VARCHAR(255),
     
     -- Status tracking
-    status                  VARCHAR(15) DEFAULT 'received',
-    -- received → validated → clearing → approved/rejected/flagged → settled/bounced
+    status                  VARCHAR(20) DEFAULT 'received',
+    -- received → validated/validation_failed → clearing → approved/rejected/flagged → settled/bounced
     
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
@@ -433,5 +433,6 @@ SELECT
     COUNT(*) FILTER (WHERE status = 'approved') AS approved,
     COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,
     COUNT(*) FILTER (WHERE status = 'flagged') AS flagged,
+    COUNT(*) FILTER (WHERE status = 'validation_failed') AS validation_failed,
     SUM(amount) AS total_amount
 FROM cheques WHERE created_at::date = CURRENT_DATE;

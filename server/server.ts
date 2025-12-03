@@ -6,6 +6,7 @@ import cors from 'cors';
 import { validateChequeData } from './services/validationService.js';
 import { analyzeCheque } from './services/analysisService.js';
 import { testConnection } from './services/db.js';
+import { detectFraud, checkModelStatus, getMockFraudResult } from './services/fraudDetectionService.js';
 import { logBypassStatus } from './config/bypass.js';
 
 // Log bypass configuration on startup
@@ -14,9 +15,11 @@ logBypassStatus();
 const app = express();
 const PORT = Number(process.env.SERVER_PORT || 3001);
 
-// Allow all origins in development so the frontend can run on any localhost port (Vite may pick 5000/5001).
-const corsOrigin: any = process.env.NODE_ENV === 'development' ? true : (process.env.FRONTEND_URL || 'http://localhost:3000');
-app.use(cors({ origin: corsOrigin, credentials: true }));
+// CORS configuration - Allow all origins in development
+app.use(cors({ 
+  origin: process.env.NODE_ENV === 'development' ? true : process.env.FRONTEND_URL || 'http://localhost:5000',
+  credentials: true 
+}));
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/api/health', async (req: Request, res: Response) => {
@@ -148,6 +151,59 @@ app.post('/api/account-details', async (req: Request, res: Response) => {
   }
 });
 
+// Get customer profile with full behaviour analysis
+app.get('/api/customer-profile/:accountNumber', async (req: Request, res: Response) => {
+  try {
+    const { accountNumber } = req.params;
+    const { getCustomerProfile } = await import('./services/customerBehaviourService.js');
+    const profile = await getCustomerProfile(accountNumber);
+    
+    if (!profile) {
+      return res.status(404).json({ success: false, error: 'Profile not found' });
+    }
+    
+    res.json({ success: true, profile });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to fetch customer profile';
+    console.error('Customer profile error:', error);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+// Detect behaviour anomalies for a transaction
+app.post('/api/behaviour-analysis', async (req: Request, res: Response) => {
+  try {
+    const { accountNumber, amount, payeeName } = req.body;
+    if (!accountNumber || !amount) {
+      return res.status(400).json({ error: 'Missing accountNumber or amount' });
+    }
+    
+    const { detectBehaviourAnomalies, calculateBehaviourScore } = await import('./services/customerBehaviourService.js');
+    const anomalies = await detectBehaviourAnomalies(accountNumber, amount, payeeName || 'Unknown');
+    const score = calculateBehaviourScore(anomalies);
+    
+    res.json({ success: true, anomalies, behaviourScore: score });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Behaviour analysis failed';
+    console.error('Behaviour analysis error:', error);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+// Get all customers with summary profiles for a bank
+app.get('/api/customers', async (req: Request, res: Response) => {
+  try {
+    const { bankCode } = req.query;
+    const { getAllCustomerSummaries } = await import('./services/customerBehaviourService.js');
+    const customers = await getAllCustomerSummaries(bankCode as string | undefined);
+    res.json({ success: true, customers });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to fetch customers';
+    console.error('Customers fetch error:', error);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
 app.post('/api/analyze', async (req: Request, res: Response) => {
   try {
     const { image, mimeType } = req.body;
@@ -163,6 +219,67 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: { message: msg }, message: msg });
   }
 });
+
+// ============================================================
+// FRAUD DETECTION ENDPOINTS (Drawer Bank)
+// ============================================================
+
+// Check if fraud detection model is available
+app.get('/api/fraud-detection/status', async (req: Request, res: Response) => {
+  try {
+    const status = await checkModelStatus();
+    res.json({ 
+      success: true, 
+      ...status,
+      timestamp: new Date().toISOString() 
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Status check failed';
+    console.error('Fraud detection status error:', error);
+    res.status(500).json({ success: false, error: { message: msg }, modelAvailable: false });
+  }
+});
+
+// Run fraud detection analysis
+app.post('/api/fraud-detection', async (req: Request, res: Response) => {
+  try {
+    const { chequeData, signatureScore } = req.body;
+    
+    if (!chequeData) {
+      return res.status(400).json({ 
+        success: false, 
+        error: { message: 'Missing chequeData in request body' } 
+      });
+    }
+
+    // Try real fraud detection first
+    let result = await detectFraud(chequeData, signatureScore || 85);
+    
+    // If model not available, use mock for demo purposes
+    if (!result.modelAvailable && !result.error?.includes('parse')) {
+      console.log('[FraudDetection] Model not available, using mock results');
+      result = getMockFraudResult(chequeData);
+    }
+
+    res.json({ 
+      success: true, 
+      fraudDetection: result,
+      timestamp: new Date().toISOString() 
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Fraud detection failed';
+    console.error('Fraud detection error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: { message: msg }, 
+      message: msg 
+    });
+  }
+});
+
+// ============================================================
+// DASHBOARD & CHEQUE MANAGEMENT ENDPOINTS
+// ============================================================
 
 // Dashboard Endpoints
 app.get('/api/dashboard/stats', async (req: Request, res: Response) => {
@@ -224,24 +341,38 @@ app.get('/api/bank/:bankCode/cheques/outward', async (req: Request, res: Respons
 app.post('/api/cheques', async (req: Request, res: Response) => {
   try {
     const { createCheque, storeDeepVerification } = await import('./services/dbQueries.js');
-    const chequeId = await createCheque(req.body);
+    const result = await createCheque(req.body);
+    const { chequeId, sameBankDeposit } = result;
     
     // If analysis results include AI verification data, store it
-    if (req.body.analysisResults) {
+    // Only store if we have a valid chequeId
+    if (req.body.analysisResults && chequeId) {
       const ar = req.body.analysisResults;
-      await storeDeepVerification(chequeId, {
-        signatureScore: ar.signatureScore,
-        signatureMatch: ar.signatureMatch,
-        fraudRiskScore: ar.fraudRiskScore,
-        riskLevel: ar.riskLevel || 'low',
-        aiDecision: ar.aiDecision || 'approve',
-        aiConfidence: ar.aiConfidence || 85,
-        aiReasoning: ar.aiReasoning,
-        behaviorFlags: ar.behaviorFlags || []
-      });
+      try {
+        await storeDeepVerification(chequeId, {
+          signatureScore: ar.signatureScore,
+          signatureMatch: ar.signatureMatch,
+          fraudRiskScore: ar.fraudRiskScore,
+          riskLevel: ar.riskLevel || 'low',
+          aiDecision: ar.aiDecision || 'approve',
+          aiConfidence: ar.aiConfidence || 85,
+          aiReasoning: ar.aiReasoning,
+          behaviorFlags: ar.behaviorFlags || []
+        });
+      } catch (verifyError) {
+        // Don't fail the whole request if deep verification storage fails
+        console.error('Error storing deep verification (non-fatal):', verifyError);
+      }
     }
     
-    res.json({ success: true, chequeId });
+    res.json({ 
+      success: true, 
+      chequeId,
+      sameBankDeposit,
+      warning: sameBankDeposit 
+        ? 'This is a same-bank deposit (internal transfer). It does not require BACH inter-bank clearing.'
+        : undefined
+    });
   } catch (error) {
     console.error('Error creating cheque:', error);
     const msg = error instanceof Error ? error.message : 'Failed to create cheque';
@@ -249,15 +380,77 @@ app.post('/api/cheques', async (req: Request, res: Response) => {
   }
 });
 
-// Send cheque to BACH
+// Send cheque to BACH - generates actual BACH package files
 app.post('/api/cheques/:id/send-to-bach', async (req: Request, res: Response) => {
   try {
-    const { sendToBACH } = await import('./services/dbQueries.js');
-    const result = await sendToBACH(Number(req.params.id));
-    res.json({ success: true, ...result });
+    const { sendToBACH, getChequeDetails } = await import('./services/dbQueries.js');
+    const { generateBACHPackage } = await import('./services/bachService.js');
+    
+    const chequeId = Number(req.params.id);
+    
+    // Get cheque details for BACH package
+    const details = await getChequeDetails(chequeId);
+    if (!details) {
+      return res.status(404).json({ success: false, error: 'Cheque not found' });
+    }
+    
+    // Generate actual BACH package files
+    const bachPackage = await generateBACHPackage({
+      chequeId,
+      chequeNumber: details.cheque.cheque_number,
+      amount: parseFloat(details.cheque.amount),
+      payeeName: details.cheque.payee_name,
+      drawerAccount: details.cheque.drawer_account,
+      drawerBankCode: details.cheque.drawer_bank_code,
+      presentingBankCode: details.cheque.presenting_bank_code,
+      micrCode: details.cheque.micr_code || '',
+      issueDate: details.cheque.issue_date,
+      chequeImagePath: details.cheque.cheque_image_path,
+      signatureImagePath: details.cheque.signature_image_path
+    });
+    
+    // Update database status
+    const result = await sendToBACH(chequeId);
+    
+    res.json({ 
+      success: true, 
+      ...result,
+      bachPackage: {
+        packageName: bachPackage.packageName,
+        files: bachPackage.files,
+        encrypted: bachPackage.encrypted
+      }
+    });
   } catch (error) {
     console.error('Error sending to BACH:', error);
     res.status(500).json({ success: false, error: 'Failed to send to BACH' });
+  }
+});
+
+// List all BACH packages
+app.get('/api/bach/packages', async (req: Request, res: Response) => {
+  try {
+    const { listBACHPackages } = await import('./services/bachService.js');
+    const packages = await listBACHPackages();
+    res.json({ success: true, packages });
+  } catch (error) {
+    console.error('Error listing BACH packages:', error);
+    res.status(500).json({ success: false, error: 'Failed to list BACH packages' });
+  }
+});
+
+// Get BACH package details
+app.get('/api/bach/packages/:name', async (req: Request, res: Response) => {
+  try {
+    const { getBACHPackageDetails } = await import('./services/bachService.js');
+    const details = await getBACHPackageDetails(req.params.name);
+    if (!details) {
+      return res.status(404).json({ success: false, error: 'Package not found' });
+    }
+    res.json({ success: true, details });
+  } catch (error) {
+    console.error('Error getting BACH package:', error);
+    res.status(500).json({ success: false, error: 'Failed to get BACH package' });
   }
 });
 

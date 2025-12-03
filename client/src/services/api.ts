@@ -123,6 +123,8 @@ export const createCheque = async (data: {
     presentingBankCode: string;
     chequeImagePath?: string;
     signatureImagePath?: string;
+    validationFailed?: boolean;
+    failureReasons?: string;
     analysisResults?: {
         signatureScore?: number;
         signatureMatch?: string;
@@ -135,7 +137,7 @@ export const createCheque = async (data: {
         isAiGenerated?: boolean;
         confidence?: number;
     };
-}): Promise<number> => {
+}): Promise<{ chequeId: number; sameBankDeposit?: boolean; warning?: string }> => {
     const res = await fetch(`${API_URL}/api/cheques`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -146,7 +148,11 @@ export const createCheque = async (data: {
         throw new Error(err.error || 'Failed to create cheque');
     }
     const json = await res.json();
-    return json.chequeId;
+    return { 
+        chequeId: json.chequeId, 
+        sameBankDeposit: json.sameBankDeposit,
+        warning: json.warning 
+    };
 };
 
 // Send cheque to BACH

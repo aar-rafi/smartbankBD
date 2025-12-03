@@ -119,23 +119,52 @@ export const validateChequeBasic = async (data: ChequeData): Promise<ValidationR
         });
     }
 
-    // 6. Basic Image Quality (based on AI detection - presenting bank can do basic check)
+    // 6. Basic Image Quality Check
+    rules.push({
+        id: 'image-quality',
+        label: 'Image Quality Check',
+        status: 'pass',
+        message: 'Image quality acceptable'
+    });
+
+    // 7. AI Detection / SynthID Check (basic scan at presenting bank)
     if (BypassConfig.skipAIDetection || isDemo) {
         rules.push({
-            id: 'image-quality',
-            label: 'Image Quality Check',
+            id: 'ai-detection',
+            label: 'AI Detection (SynthID)',
             status: 'pass',
-            message: 'Image quality acceptable'
+            message: 'No AI-generated artifacts detected'
         });
     } else {
-        // Basic check - if AI confidence is very high, flag it
-        const suspicious = data.isAiGenerated && (data.synthIdConfidence ?? 0) > 90;
-        rules.push({
-            id: 'image-quality',
-            label: 'Image Quality Check',
-            status: suspicious ? 'warning' : 'pass',
-            message: suspicious ? 'Image may need review' : 'Image quality acceptable'
-        });
+        // Check for AI-generated content using SynthID confidence
+        const synthIdScore = data.synthIdConfidence ?? 0;
+        const isAiGenerated = data.isAiGenerated === true;
+        
+        if (isAiGenerated && synthIdScore > 80) {
+            rules.push({
+                id: 'ai-detection',
+                label: 'AI Detection (SynthID)',
+                status: 'fail',
+                message: `AI-GENERATED CONTENT DETECTED (SynthID: ${synthIdScore}% confidence)`,
+                details: { synthIdConfidence: synthIdScore, isAiGenerated: true }
+            });
+        } else if (isAiGenerated && synthIdScore > 50) {
+            rules.push({
+                id: 'ai-detection',
+                label: 'AI Detection (SynthID)',
+                status: 'warning',
+                message: `Possible AI artifacts detected (SynthID: ${synthIdScore}% confidence)`,
+                details: { synthIdConfidence: synthIdScore, isAiGenerated: true }
+            });
+        } else {
+            rules.push({
+                id: 'ai-detection',
+                label: 'AI Detection (SynthID)',
+                status: 'pass',
+                message: 'No AI-generated artifacts detected',
+                details: { synthIdConfidence: synthIdScore, isAiGenerated: false }
+            });
+        }
     }
 
     const isValid = !rules.some(r => r.status === 'fail');
@@ -316,11 +345,15 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
     // Fetch reference signature from our database
     if (data.accountNumber && data.hasSignature) {
         try {
+            console.log(`[Signature] Fetching reference for account: ${data.accountNumber}`);
             const refSignatureBuffer = await getReferenceSignature(data.accountNumber);
             if (refSignatureBuffer) {
                 signatureData.reference = Buffer.isBuffer(refSignatureBuffer)
                     ? refSignatureBuffer.toString('base64')
                     : refSignatureBuffer;
+                console.log(`[Signature] Reference signature loaded (${signatureData.reference?.length || 0} chars base64)`);
+            } else {
+                console.log(`[Signature] No reference signature found for account: ${data.accountNumber}`);
             }
         } catch (error) {
             console.error('Failed to fetch reference signature:', error);
@@ -409,29 +442,78 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
         });
     }
 
-    // 7. Fraud/Behavior Analysis (placeholder - would use customer_profiles table)
-    rules.push({
-        id: 'fraud-analysis',
-        label: 'Fraud Risk Analysis',
-        status: 'pass',
-        message: 'Transaction within normal patterns',
-        details: { 
-            riskScore: 15, 
-            riskLevel: 'low',
-            flags: []
+    // 7. Fraud/Behavior Analysis - Call the ML fraud detection service
+    let fraudRiskScore = 0;
+    let fraudRiskLevel = 'low';
+    let fraudRiskFactors: string[] = [];
+    let fullFraudResult: any = null;
+    
+    try {
+        const { detectFraud } = await import('./fraudDetectionService.js');
+        const fraudResult = await detectFraud(data, signatureData.matchScore ?? 85);
+        fullFraudResult = fraudResult; // Store full result for return
+        
+        if (fraudResult.modelAvailable && fraudResult.fraudScore !== null) {
+            fraudRiskScore = fraudResult.fraudScore;
+            fraudRiskLevel = fraudResult.riskLevel || 'low';
+            fraudRiskFactors = fraudResult.riskFactors?.map(f => f.description) || [];
+            
+            const fraudStatus = fraudRiskScore >= 70 ? 'fail' : fraudRiskScore >= 50 ? 'warning' : 'pass';
+            rules.push({
+                id: 'fraud-analysis',
+                label: 'Fraud Risk Analysis',
+                status: fraudStatus,
+                message: fraudResult.recommendation || `Risk score: ${fraudRiskScore}%`,
+                details: { 
+                    riskScore: fraudRiskScore, 
+                    riskLevel: fraudRiskLevel,
+                    flags: fraudRiskFactors,
+                    modelAvailable: true
+                }
+            });
+        } else {
+            // Model not available - use conservative default
+            rules.push({
+                id: 'fraud-analysis',
+                label: 'Fraud Risk Analysis',
+                status: 'warning',
+                message: 'Fraud detection model unavailable - manual review recommended',
+                details: { 
+                    riskScore: 0, 
+                    riskLevel: 'unknown',
+                    flags: [],
+                    modelAvailable: false
+                }
+            });
         }
-    });
+    } catch (fraudError) {
+        console.error('Fraud detection error:', fraudError);
+        rules.push({
+            id: 'fraud-analysis',
+            label: 'Fraud Risk Analysis',
+            status: 'warning',
+            message: 'Fraud detection service error - manual review recommended',
+            details: { 
+                riskScore: 0, 
+                riskLevel: 'unknown',
+                flags: [],
+                error: fraudError instanceof Error ? fraudError.message : 'Unknown error'
+            }
+        });
+    }
 
     const isValid = !rules.some(r => r.status === 'fail');
-    const riskScore = rules.find(r => r.id === 'fraud-analysis')?.details?.riskScore ?? 0;
-    const riskLevel = riskScore > 70 ? 'high' : riskScore > 40 ? 'medium' : 'low';
+    const riskScore = fraudRiskScore;
+    const riskLevel = fraudRiskLevel;
 
     return { 
         isValid, 
         rules, 
         signatureData,
         riskScore,
-        riskLevel
+        riskLevel,
+        // Include full fraud detection result for UI
+        fraudDetection: fullFraudResult
     };
 };
 

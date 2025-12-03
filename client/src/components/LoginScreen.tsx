@@ -21,7 +21,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ bank }) => {
                         <Building2 className="h-8 w-8 text-primary" />
                     </div>
                     <CardTitle className="text-2xl">{bank.name}</CardTitle>
-                    <CardDescription>ChequeMate AI - BACH Clearing System</CardDescription>
+                    <CardDescription>SmartBankBD - BACH Clearing System</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <p className="text-sm text-muted-foreground text-center">

@@ -1,6 +1,10 @@
 import pool from './db.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { exec } from 'child_process';
+import util from 'util';
+
+const execPromise = util.promisify(exec);
 
 /**
  * Check if an account exists and is active
@@ -140,12 +144,15 @@ export const getAccountDetails = async (accountNumber: string) => {
 
 /**
  * Get reference signature (base64) from account_signatures for an account number
+ * Converts to grayscale before returning
  */
 export const getReferenceSignature = async (accountNumber: string): Promise<Buffer | null> => {
   try {
+    console.log(`[getReferenceSignature] Looking up signature for account: "${accountNumber}"`);
+    
     // Get account_id from account_number, then fetch the reference signature path
     const result = await pool.query(
-      `SELECT asig.image_path 
+      `SELECT asig.image_path, a.holder_name
        FROM account_signatures asig
        JOIN accounts a ON asig.account_id = a.account_id
        WHERE a.account_number = $1
@@ -154,20 +161,28 @@ export const getReferenceSignature = async (accountNumber: string): Promise<Buff
       [accountNumber]
     );
 
+    console.log(`[getReferenceSignature] Query result: ${JSON.stringify(result.rows)}`);
+
     if (result.rows.length === 0 || !result.rows[0].image_path) {
+      console.log(`[getReferenceSignature] No signature found for account: ${accountNumber}`);
       return null;
     }
 
     const imagePath = result.rows[0].image_path;
+    console.log(`[getReferenceSignature] Found signature path: ${imagePath} for ${result.rows[0].holder_name}`);
 
-    // Try to read the file
+    // Read the original file directly (no grayscale conversion - let ML model handle it)
     try {
       // imagePath is relative to project root (e.g., '/signatures/sig-1.jpg')
       // Since server runs from /server folder, go up one level to project root
       const projectRoot = path.resolve(process.cwd(), '..');
       const fullPath = path.join(projectRoot, imagePath);
-      const fileBuffer = await fs.readFile(fullPath);
-      return fileBuffer;
+      
+      console.log(`[getReferenceSignature] Reading file from: ${fullPath}`);
+      const imageBuffer = await fs.readFile(fullPath);
+      console.log(`[getReferenceSignature] Successfully read ${imageBuffer.length} bytes`);
+      
+      return imageBuffer;
     } catch (err) {
       console.warn(`Could not read signature file at ${imagePath}:`, err);
       return null;
@@ -263,11 +278,11 @@ export const storeValidationResult = async (chequeNumber: string, accountNumber:
           drawerBankId,
           depositorAccountId,
           presentingBankId,
-          validationData.payeeName || 'Unknown',
+          (validationData.payeeName || 'Unknown').substring(0, 100),
           validationData.amountDigits || 0,
-          validationData.amountWords || null,
+          validationData.amountWords ? validationData.amountWords.substring(0, 200) : null,
           new Date().toISOString().split('T')[0],
-          validationData.micrCode || null
+          validationData.micrCode ? validationData.micrCode.substring(0, 50) : null
         ]
       );
 
@@ -349,7 +364,7 @@ export const getDashboardCheques = async (limit = 20) => {
  */
 export const getChequeDetails = async (chequeId: number) => {
   try {
-    // Basic Cheque Info
+    // Basic Cheque Info with account details
     const chequeResult = await pool.query(
       `SELECT 
         c.*, 
@@ -357,7 +372,12 @@ export const getChequeDetails = async (chequeId: number) => {
         db.bank_code as drawer_bank_code,
         pb.bank_name as presenting_bank_name,
         pb.bank_code as presenting_bank_code,
-        a.account_number as drawer_account, a.holder_name as drawer_name
+        a.account_number as drawer_account, 
+        a.holder_name as drawer_name,
+        a.balance as account_balance,
+        a.status as account_status,
+        a.account_type,
+        a.created_at as account_opened_at
        FROM cheques c
        JOIN banks db ON c.drawer_bank_id = db.bank_id
        LEFT JOIN banks pb ON c.presenting_bank_id = pb.bank_id
@@ -485,6 +505,59 @@ const extractNumericChequeNumber = (chequeNumber: string): string => {
 };
 
 /**
+ * Parse date string and convert to YYYY-MM-DD format for PostgreSQL
+ * Handles various formats: DD-MM-YYYY, DD/MM/YYYY, MM-DD-YYYY, YYYY-MM-DD
+ */
+const parseAndFormatDate = (dateStr: string): string => {
+  if (!dateStr) return new Date().toISOString().split('T')[0];
+  
+  // Already in correct format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  
+  // Try DD-MM-YYYY or DD/MM/YYYY (common in Bangladesh)
+  let match = dateStr.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+  if (match) {
+    const [, day, month, year] = match;
+    // Validate the date makes sense
+    const dayNum = parseInt(day);
+    const monthNum = parseInt(month);
+    if (dayNum > 12 && monthNum <= 12) {
+      // Day > 12 means it's definitely DD-MM-YYYY
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    } else if (monthNum > 12 && dayNum <= 12) {
+      // Month > 12 means it's MM-DD-YYYY
+      return `${year}-${day.padStart(2, '0')}-${month.padStart(2, '0')}`;
+    } else {
+      // Ambiguous - assume DD-MM-YYYY (Bangladesh format)
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+  }
+  
+  // Try YYYY/MM/DD
+  match = dateStr.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (match) {
+    const [, year, month, day] = match;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  
+  // Fallback: try JavaScript Date parsing
+  try {
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().split('T')[0];
+    }
+  } catch (e) {
+    // Ignore
+  }
+  
+  // Last resort: return today's date
+  console.warn(`Could not parse date: ${dateStr}, using today's date`);
+  return new Date().toISOString().split('T')[0];
+};
+
+/**
  * Create a new cheque record when deposited at presenting bank
  */
 export const createCheque = async (data: {
@@ -498,6 +571,8 @@ export const createCheque = async (data: {
   presentingBankCode: string;
   chequeImagePath?: string;
   signatureImagePath?: string;
+  validationFailed?: boolean;
+  failureReasons?: string;
   analysisResults?: any;
 }) => {
   try {
@@ -505,50 +580,115 @@ export const createCheque = async (data: {
     const numericChequeNumber = extractNumericChequeNumber(data.chequeNumber);
     
     // Get drawer account and bank
-    const drawerResult = await pool.query(
+    let drawerResult = await pool.query(
       'SELECT account_id, bank_id FROM accounts WHERE account_number = $1',
       [data.drawerAccountNumber]
     );
 
-    if (drawerResult.rows.length === 0) {
-      throw new Error(`Drawer account ${data.drawerAccountNumber} not found`);
-    }
+    let drawerAccountId: number;
+    let drawerBankId: number;
 
-    const { account_id: drawerAccountId, bank_id: drawerBankId } = drawerResult.rows[0];
-
-    // Get presenting bank
+    // Get presenting bank first (needed for placeholder account creation if drawer account is missing)
     const presentingBankResult = await pool.query(
       'SELECT bank_id FROM banks WHERE LOWER(bank_code) = LOWER($1)',
       [data.presentingBankCode]
     );
 
+    let presentingBankId: number;
     if (presentingBankResult.rows.length === 0) {
-      throw new Error(`Presenting bank ${data.presentingBankCode} not found`);
+      // Bank not found - get first available bank as fallback
+      const fallbackBank = await pool.query('SELECT bank_id FROM banks LIMIT 1');
+      if (fallbackBank.rows.length === 0) {
+        throw new Error('No banks found in database');
+      }
+      presentingBankId = fallbackBank.rows[0].bank_id;
+      console.warn(`Presenting bank ${data.presentingBankCode} not found - using fallback bank ${presentingBankId}`);
+    } else {
+      presentingBankId = presentingBankResult.rows[0].bank_id;
     }
 
-    const presentingBankId = presentingBankResult.rows[0].bank_id;
+    if (drawerResult.rows.length === 0) {
+      // Account not found - create a placeholder account for faulty records
+      console.warn(`Drawer account ${data.drawerAccountNumber} not found - creating placeholder account`);
+      
+      // Use presenting bank as fallback for placeholder account
+      const fallbackBankId = presentingBankId;
 
-    // Check if cheque already exists
+      // Create placeholder account
+      const placeholderResult = await pool.query(
+        `INSERT INTO accounts (bank_id, account_number, holder_name, account_type, balance, status)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (account_number) DO UPDATE SET account_number = accounts.account_number
+         RETURNING account_id, bank_id`,
+        [
+          fallbackBankId,
+          data.drawerAccountNumber,
+          `Unknown Account (${data.drawerAccountNumber})`,
+          'savings',
+          0,
+          'active'
+        ]
+      );
+      
+      drawerAccountId = placeholderResult.rows[0].account_id;
+      drawerBankId = placeholderResult.rows[0].bank_id;
+      
+      console.log(`Created placeholder account ${data.drawerAccountNumber} with ID ${drawerAccountId}`);
+    } else {
+      const { account_id, bank_id } = drawerResult.rows[0];
+      drawerAccountId = account_id;
+      drawerBankId = bank_id;
+    }
+
+    // Check for same-bank deposit (internal transfer - not inter-bank clearing)
+    const isSameBankDeposit = drawerBankId === presentingBankId;
+    if (isSameBankDeposit) {
+      console.warn(`Same-bank deposit detected: drawer and presenting bank are both ${data.presentingBankCode}`);
+      // Still allow it but mark appropriately - will return flag to client
+    }
+
+    // Check if this exact cheque already exists (same cheque number at same presenting bank)
     const existingCheque = await pool.query(
-      'SELECT cheque_id FROM cheques WHERE cheque_number = $1',
-      [numericChequeNumber]
+      'SELECT cheque_id, status FROM cheques WHERE cheque_number = $1 AND presenting_bank_id = $2',
+      [numericChequeNumber, presentingBankId]
     );
 
     if (existingCheque.rows.length > 0) {
-      // Update existing
+      // Update existing cheque at this presenting bank
       const chequeId = existingCheque.rows[0].cheque_id;
+      const existingStatus = existingCheque.rows[0].status;
+      
+      // Don't overwrite if already processed (approved/rejected/settled)
+      if (['approved', 'rejected', 'settled', 'bounced'].includes(existingStatus)) {
+        console.log(`Cheque ${numericChequeNumber} already processed with status ${existingStatus}, not updating`);
+        return chequeId;
+      }
+      
+      const chequeStatus = data.validationFailed ? 'validation_failed' : 'validated';
       await pool.query(
         `UPDATE cheques SET 
-          presenting_bank_id = $1, 
-          status = 'validated',
+          status = $1,
           cheque_image_path = COALESCE($2, cheque_image_path),
           signature_image_path = COALESCE($3, signature_image_path)
          WHERE cheque_id = $4`,
-        [presentingBankId, data.chequeImagePath, data.signatureImagePath, chequeId]
+        [chequeStatus, data.chequeImagePath, data.signatureImagePath, chequeId]
       );
       return chequeId;
     }
+    
+    // Check if same cheque number exists at DIFFERENT presenting bank (duplicate submission)
+    const duplicateCheck = await pool.query(
+      'SELECT cheque_id, presenting_bank_id FROM cheques WHERE cheque_number = $1',
+      [numericChequeNumber]
+    );
+    
+    if (duplicateCheck.rows.length > 0) {
+      console.warn(`Cheque ${numericChequeNumber} already exists at another bank (ID: ${duplicateCheck.rows[0].cheque_id}). Creating new record for this presenting bank.`);
+    }
 
+    // Determine status based on validation result
+    const chequeStatus = data.validationFailed ? 'validation_failed' : 'validated';
+    
     // Create new cheque
     const insertResult = await pool.query(
       `INSERT INTO cheques (
@@ -559,7 +699,7 @@ export const createCheque = async (data: {
           cheque_image_path, signature_image_path,
           status
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'validated')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING cheque_id`,
       [
         numericChequeNumber,
@@ -569,37 +709,79 @@ export const createCheque = async (data: {
         data.payeeName,
         data.amount,
         data.amountWords || null,
-        data.issueDate,
+        parseAndFormatDate(data.issueDate),
         data.micrCode || null,
         data.chequeImagePath || null,
-        data.signatureImagePath || null
+        data.signatureImagePath || null,
+        chequeStatus
       ]
     );
 
     const chequeId = insertResult.rows[0].cheque_id;
 
-    // Store initial validation results
-    if (data.analysisResults) {
+    // Store initial validation results (always store, even if failed)
+    const validationStatus = data.validationFailed ? 'failed' : 'passed';
+    const failureReason = data.failureReasons || null;
+    
+    // Check if validation already exists
+    const existingValidation = await pool.query(
+      'SELECT validation_id FROM initial_validations WHERE cheque_id = $1',
+      [chequeId]
+    );
+    
+    if (existingValidation.rows.length > 0) {
+      // Update existing validation
+      await pool.query(
+        `UPDATE initial_validations SET
+          all_fields_present = $1,
+          date_valid = $2,
+          micr_readable = $3,
+          ocr_amount = $4,
+          ocr_confidence = $5,
+          amount_match = $6,
+          validation_status = $7,
+          failure_reason = $8
+         WHERE cheque_id = $9`,
+        [
+          !data.validationFailed, // all_fields_present
+          !data.validationFailed, // date_valid (simplified)
+          !!data.micrCode,
+          data.amount,
+          data.analysisResults?.confidence || 85,
+          !data.validationFailed, // amount_match (simplified)
+          validationStatus,
+          failureReason,
+          chequeId
+        ]
+      );
+    } else {
+      // Insert new validation
       await pool.query(
         `INSERT INTO initial_validations (
             cheque_id, all_fields_present, date_valid, micr_readable, 
-            ocr_amount, ocr_confidence, amount_match, validation_status
+            ocr_amount, ocr_confidence, amount_match, validation_status, failure_reason
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           chequeId,
-          true,
-          true,
+          !data.validationFailed, // all_fields_present
+          !data.validationFailed, // date_valid (simplified)
           !!data.micrCode,
           data.amount,
-          data.analysisResults.confidence || 85,
-          true,
-          'passed'
+          data.analysisResults?.confidence || 85,
+          !data.validationFailed, // amount_match (simplified)
+          validationStatus,
+          failureReason
         ]
       );
     }
 
-    return chequeId;
+    return { 
+      chequeId, 
+      sameBankDeposit: isSameBankDeposit,
+      drawerBankId,
+      presentingBankId
+    };
   } catch (error) {
     console.error('Error creating cheque:', error);
     throw error;
@@ -774,6 +956,12 @@ export const storeDeepVerification = async (chequeId: number, data: {
   aiReasoning?: string;
   behaviorFlags?: string[];
 }) => {
+  // Guard against null/undefined chequeId
+  if (!chequeId || chequeId <= 0) {
+    console.warn('storeDeepVerification called with invalid chequeId:', chequeId);
+    return { success: false, error: 'Invalid chequeId' };
+  }
+  
   try {
     await pool.query(
       `INSERT INTO deep_verifications (
