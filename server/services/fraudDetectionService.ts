@@ -174,7 +174,9 @@ export async function detectFraud(
   chequeData: ChequeData,
   signatureScore: number = 85
 ): Promise<FraudDetectionResult> {
-  console.log('[FraudDetection] Starting fraud analysis...');
+  console.log('\n========================================');
+  console.log('[FraudDetection] 🔍 STARTING FRAUD ANALYSIS');
+  console.log('========================================');
   
   // Prepare input for Python script
   const inputData = {
@@ -195,19 +197,50 @@ export async function detectFraud(
     signatureScore
   };
 
+  console.log('\n📥 INPUT DATA TO FRAUD DETECTION:');
+  console.log('----------------------------------------');
+  console.log(JSON.stringify(inputData, null, 2));
+  console.log('----------------------------------------');
+
   try {
     const result = await executePythonScript(inputData);
     
-    console.log('[FraudDetection] Analysis complete:', {
-      modelAvailable: result.modelAvailable,
-      fraudScore: result.fraudScore,
-      riskLevel: result.riskLevel,
-      riskFactors: result.riskFactors?.length || 0
-    });
+    console.log('\n📤 OUTPUT FROM FRAUD DETECTION:');
+    console.log('----------------------------------------');
+    console.log(JSON.stringify(result, null, 2));
+    console.log('----------------------------------------');
+    
+    console.log('\n📊 FRAUD ANALYSIS SUMMARY:');
+    console.log('========================================');
+    console.log(`  Model Available: ${result.modelAvailable ? '✅ Yes' : '❌ No'}`);
+    console.log(`  Data Available:  ${result.dataAvailable ? '✅ Yes' : '❌ No'}`);
+    console.log(`  Profile Found:   ${result.profileFound ? '✅ Yes' : '❌ No'}`);
+    console.log(`  Fraud Score:     ${result.fraudScore !== null ? result.fraudScore + '/100' : 'N/A'}`);
+    console.log(`  Risk Level:      ${result.riskLevel || 'N/A'}`);
+    console.log(`  Risk Factors:    ${result.riskFactors?.length || 0}`);
+    if (result.riskFactors && result.riskFactors.length > 0) {
+      console.log('\n  🚨 Risk Factors Detected:');
+      result.riskFactors.forEach((rf, i) => {
+        console.log(`     ${i+1}. [${rf.severity.toUpperCase()}] ${rf.factor}: ${rf.description}`);
+      });
+    }
+    if (result.featureContributions && result.featureContributions.length > 0) {
+      console.log('\n  📈 Feature Contributions:');
+      result.featureContributions.forEach((fc, i) => {
+        console.log(`     ${i+1}. ${fc.name}: ${fc.value} (${fc.impact})`);
+      });
+    }
+    if (result.recommendation) {
+      console.log(`\n  💡 Recommendation: ${result.recommendation}`);
+    }
+    if (result.error) {
+      console.log(`\n  ⚠️  Error: ${result.error}`);
+    }
+    console.log('========================================\n');
 
     return result;
   } catch (error) {
-    console.error('[FraudDetection] Error:', error);
+    console.error('[FraudDetection] ❌ Error:', error);
     return {
       modelAvailable: false,
       dataAvailable: false,

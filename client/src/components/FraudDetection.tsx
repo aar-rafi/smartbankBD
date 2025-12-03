@@ -1,5 +1,5 @@
 import React from 'react';
-import { FraudDetectionResult, RiskFactor, FeatureContribution } from '../../../shared/types';
+import { FraudDetectionResult, RiskFactor, FeatureContribution, SafeFactor, CustomerStatistics, ComputedFeatures } from '../../../shared/types';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,14 +16,23 @@ import {
   XCircle,
   Loader2,
   Database,
-  Brain
+  Brain,
+  BarChart3,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  ChevronUp,
+  User,
+  Clock,
+  DollarSign
 } from "lucide-react";
 
 // ============================================================
 // HELPER COMPONENTS
 // ============================================================
 
-const RiskMeter: React.FC<{ score: number; riskLevel: string }> = ({ score, riskLevel }) => {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _RiskMeter: React.FC<{ score: number; riskLevel: string }> = ({ score, riskLevel }) => {
   const getColor = () => {
     switch (riskLevel) {
       case 'high': return 'bg-red-500';
@@ -172,7 +181,8 @@ const RiskFactorItem: React.FC<{ factor: RiskFactor }> = ({ factor }) => {
   );
 };
 
-const FeatureItem: React.FC<{ feature: FeatureContribution }> = ({ feature }) => {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _FeatureItem: React.FC<{ feature: FeatureContribution }> = ({ feature }) => {
   return (
     <div className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/30 transition-colors">
       <span className="text-sm text-muted-foreground">{feature.name}</span>
@@ -194,6 +204,155 @@ const FeatureItem: React.FC<{ feature: FeatureContribution }> = ({ feature }) =>
   );
 };
 
+// Safe factor item (positive indicator)
+const SafeFactorItem: React.FC<{ factor: SafeFactor }> = ({ factor }) => {
+  return (
+    <div className="flex items-start gap-3 p-3 bg-green-50/50 rounded-lg hover:bg-green-50 transition-colors">
+      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5" />
+      <div className="flex-1 space-y-1">
+        <p className="text-sm font-medium text-green-800">{factor.description}</p>
+        {factor.value !== undefined && (
+          <span className="text-xs text-green-600">
+            Value: {typeof factor.value === 'boolean' ? (factor.value ? 'Yes' : 'No') : factor.value}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Statistics display component
+const StatisticsPanel: React.FC<{ 
+  statistics: CustomerStatistics; 
+  features: ComputedFeatures;
+  chequeAmount?: number;
+}> = ({ statistics, features, chequeAmount }) => {
+  const formatCurrency = (val: number) => `৳${val.toLocaleString('en-BD', { minimumFractionDigits: 2 })}`;
+  
+  return (
+    <div className="space-y-4">
+      {/* Customer Profile Stats */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-slate-50 rounded-lg p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <DollarSign className="h-3 w-3" />
+            Average Transaction
+          </div>
+          <p className="text-sm font-semibold">{formatCurrency(statistics.avgTransactionAmt)}</p>
+        </div>
+        
+        <div className="bg-slate-50 rounded-lg p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <TrendingUp className="h-3 w-3" />
+            Max Transaction
+          </div>
+          <p className="text-sm font-semibold">{formatCurrency(statistics.maxTransactionAmt)}</p>
+        </div>
+        
+        <div className="bg-slate-50 rounded-lg p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <Database className="h-3 w-3" />
+            Account Balance
+          </div>
+          <p className="text-sm font-semibold">{formatCurrency(statistics.accountBalance)}</p>
+        </div>
+        
+        <div className="bg-slate-50 rounded-lg p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <Clock className="h-3 w-3" />
+            Account Age
+          </div>
+          <p className="text-sm font-semibold">{statistics.accountAgeDays} days</p>
+        </div>
+        
+        <div className="bg-slate-50 rounded-lg p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <Activity className="h-3 w-3" />
+            Total Transactions
+          </div>
+          <p className="text-sm font-semibold">{statistics.totalTransactionCount}</p>
+        </div>
+        
+        <div className="bg-slate-50 rounded-lg p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <User className="h-3 w-3" />
+            Unique Payees
+          </div>
+          <p className="text-sm font-semibold">{statistics.uniquePayeeCount}</p>
+        </div>
+      </div>
+      
+      {/* Comparison Metrics */}
+      {chequeAmount && (
+        <div className="border-t pt-4 space-y-3">
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Transaction Analysis</h4>
+          
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Amount vs Average</span>
+              <span className={`text-sm font-medium ${features.amountZscore > 2 ? 'text-red-600' : features.amountZscore > 1 ? 'text-amber-600' : 'text-green-600'}`}>
+                {features.amountZscore > 0 ? '+' : ''}{features.amountZscore.toFixed(1)} std dev
+              </span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Amount vs Max</span>
+              <span className={`text-sm font-medium ${features.amountToMaxRatio > 1 ? 'text-red-600' : features.amountToMaxRatio > 0.8 ? 'text-amber-600' : 'text-green-600'}`}>
+                {(features.amountToMaxRatio * 100).toFixed(0)}% of max
+              </span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Amount vs Balance</span>
+              <span className={`text-sm font-medium ${features.amountToBalanceRatio > 1 ? 'text-red-600' : features.amountToBalanceRatio > 0.5 ? 'text-amber-600' : 'text-green-600'}`}>
+                {(features.amountToBalanceRatio * 100).toFixed(0)}% of balance
+              </span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">Signature Match</span>
+              <span className={`text-sm font-medium ${features.signatureScore >= 70 ? 'text-green-600' : features.signatureScore >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                {features.signatureScore.toFixed(1)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Additional Info */}
+      <div className="border-t pt-4">
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Additional Information</h4>
+        <div className="flex flex-wrap gap-2">
+          {features.isNewPayee && (
+            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+              <Info className="h-3 w-3 mr-1" />
+              No transaction history to verify payee
+            </Badge>
+          )}
+          {features.isWeekend && (
+            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+              <Info className="h-3 w-3 mr-1" />
+              Transaction on weekend
+            </Badge>
+          )}
+          {features.isDormant && (
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+              <AlertCircle className="h-3 w-3 mr-1" />
+              Dormant account ({features.daysSinceLastTxn} days inactive)
+            </Badge>
+          )}
+          {features.txnCount24h > 0 && (
+            <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-200">
+              <Activity className="h-3 w-3 mr-1" />
+              {features.txnCount24h} txn in 24h
+            </Badge>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
@@ -204,6 +363,8 @@ interface FraudDetectionProps {
 }
 
 const FraudDetection: React.FC<FraudDetectionProps> = ({ result, isLoading }) => {
+  const [showDetails, setShowDetails] = React.useState(false);
+  
   // Loading state
   if (isLoading) {
     return (
@@ -268,28 +429,110 @@ const FraudDetection: React.FC<FraudDetectionProps> = ({ result, isLoading }) =>
     fraudScore, 
     riskLevel, 
     riskFactors, 
-    featureContributions, 
+    safeFactors,
+    customerStatistics,
+    computedFeatures,
     recommendation,
     modelAvailable,
-    profileFound
-  } = result;
+    profileFound,
+    confidence
+  } = result;  const riskCount = riskFactors?.length || 0;
+  const safeCount = safeFactors?.length || 0;
 
   return (
     <div className="space-y-4">
       {/* Main Risk Card */}
-      <Card>
-        <CardHeader className="bg-muted/50 border-b pb-3">
+      <Card className={`border-2 ${
+        riskLevel === 'critical' || riskLevel === 'high' ? 'border-red-200 bg-red-50/30' :
+        riskLevel === 'medium' ? 'border-amber-200 bg-amber-50/30' :
+        'border-green-200 bg-green-50/30'
+      }`}>
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Activity className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-lg">ML Fraud Detection</CardTitle>
+            <div className="flex items-center gap-3">
+              {riskLevel === 'critical' || riskLevel === 'high' ? (
+                <ShieldAlert className="h-6 w-6 text-red-600" />
+              ) : riskLevel === 'medium' ? (
+                <AlertTriangle className="h-6 w-6 text-amber-600" />
+              ) : (
+                <ShieldCheck className="h-6 w-6 text-green-600" />
+              )}
+              <CardTitle className="text-lg">Fraud Risk Analysis</CardTitle>
             </div>
             {riskLevel && <RiskBadge level={riskLevel} />}
           </div>
         </CardHeader>
-        <CardContent className="p-6 space-y-6">
-          {/* Data availability indicators */}
+        <CardContent className="space-y-4">
+          {/* Risk Score Display */}
+          <div className="flex items-center gap-6">
+            {/* Circular Score Display */}
+            <div className="relative">
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center border-4 ${
+                (fraudScore || 0) >= 70 ? 'border-red-500 bg-red-50' :
+                (fraudScore || 0) >= 50 ? 'border-amber-500 bg-amber-50' :
+                (fraudScore || 0) >= 30 ? 'border-yellow-500 bg-yellow-50' :
+                'border-green-500 bg-green-50'
+              }`}>
+                <div className="text-center">
+                  <span className={`text-2xl font-bold ${
+                    (fraudScore || 0) >= 70 ? 'text-red-600' :
+                    (fraudScore || 0) >= 50 ? 'text-amber-600' :
+                    (fraudScore || 0) >= 30 ? 'text-yellow-600' :
+                    'text-green-600'
+                  }`}>
+                    {Math.round(100 - (fraudScore || 0))}%
+                  </span>
+                  <p className="text-xs text-muted-foreground">Safe</p>
+                </div>
+              </div>
+              <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full ${
+                (fraudScore || 0) >= 70 ? 'bg-red-500' :
+                (fraudScore || 0) >= 50 ? 'bg-amber-500' :
+                (fraudScore || 0) >= 30 ? 'bg-yellow-500' :
+                'bg-green-500'
+              }`} />
+            </div>
+
+            {/* Score Details */}
+            <div className="flex-1 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Risk Score</span>
+                <span className="font-semibold">{fraudScore?.toFixed(1) || 0}%</span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-500 ${
+                    (fraudScore || 0) >= 70 ? 'bg-red-500' :
+                    (fraudScore || 0) >= 50 ? 'bg-amber-500' :
+                    (fraudScore || 0) >= 30 ? 'bg-yellow-500' :
+                    'bg-green-500'
+                  }`}
+                  style={{ width: `${fraudScore || 0}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Low Risk</span>
+                <span>High Risk</span>
+              </div>
+              {confidence !== undefined && (
+                <p className="text-xs text-muted-foreground">
+                  <Info className="h-3 w-3 inline mr-1" />
+                  Model confidence: {(confidence * 100).toFixed(1)}%
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Stats Badges */}
           <div className="flex flex-wrap gap-2">
+            <Badge variant="outline" className={`${riskCount > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50'}`}>
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              {riskCount} Risk Factors
+            </Badge>
+            <Badge variant="outline" className={`${safeCount > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50'}`}>
+              <CheckCircle2 className="h-3 w-3 mr-1" />
+              {safeCount} Safe Factors
+            </Badge>
             <Badge variant="outline" className={modelAvailable ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}>
               <Brain className="h-3 w-3 mr-1" />
               {modelAvailable ? 'Model Active' : 'Demo Mode'}
@@ -300,99 +543,139 @@ const FraudDetection: React.FC<FraudDetectionProps> = ({ result, isLoading }) =>
             </Badge>
           </div>
 
-          {/* Risk Score Meter */}
-          {fraudScore !== null && riskLevel && (
-            <RiskMeter score={fraudScore} riskLevel={riskLevel} />
-          )}
+          {/* Toggle Details Button */}
+          <button
+            onClick={() => setShowDetails(!showDetails)}
+            className="w-full flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors border-t"
+          >
+            {showDetails ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showDetails ? 'Hide Details' : 'Show Details'}
+            {showDetails ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
 
-          {/* Recommendation Alert */}
-          {recommendation && (
-            <Alert className={
-              riskLevel === 'high' ? 'bg-red-50 border-red-200' :
-              riskLevel === 'medium' ? 'bg-amber-50 border-amber-200' :
-              riskLevel === 'low' ? 'bg-yellow-50 border-yellow-200' :
-              'bg-green-50 border-green-200'
-            }>
-              {riskLevel === 'high' ? (
-                <ShieldAlert className="h-4 w-4 text-red-600" />
-              ) : riskLevel === 'medium' ? (
-                <AlertTriangle className="h-4 w-4 text-amber-600" />
-              ) : (
-                <ShieldCheck className="h-4 w-4 text-green-600" />
+          {/* Expandable Details Section */}
+          {showDetails && (
+            <div className="space-y-4 pt-2 border-t">
+              {/* Risk Factors */}
+              {riskFactors && riskFactors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="flex items-center gap-2 text-sm font-semibold text-red-700">
+                    <XCircle className="h-4 w-4" />
+                    Risk Factors
+                  </h4>
+                  <div className="space-y-2">
+                    {riskFactors.map((factor, idx) => (
+                      <RiskFactorItem key={idx} factor={factor} />
+                    ))}
+                  </div>
+                </div>
               )}
-              <AlertTitle className={
-                riskLevel === 'high' ? 'text-red-800' :
-                riskLevel === 'medium' ? 'text-amber-800' :
-                riskLevel === 'low' ? 'text-yellow-800' :
-                'text-green-800'
-              }>
-                Recommendation
-              </AlertTitle>
-              <AlertDescription className={
-                riskLevel === 'high' ? 'text-red-700' :
-                riskLevel === 'medium' ? 'text-amber-700' :
-                riskLevel === 'low' ? 'text-yellow-700' :
-                'text-green-700'
-              }>
-                {recommendation}
-              </AlertDescription>
-            </Alert>
+
+              {/* Safe Factors */}
+              {safeFactors && safeFactors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="flex items-center gap-2 text-sm font-semibold text-green-700">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Safe Factors
+                  </h4>
+                  <div className="space-y-2">
+                    {safeFactors.map((factor, idx) => (
+                      <SafeFactorItem key={idx} factor={factor} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Additional Info from computed features */}
+              {computedFeatures && (
+                <div className="space-y-2">
+                  <h4 className="flex items-center gap-2 text-sm font-semibold text-blue-700">
+                    <Info className="h-4 w-4" />
+                    Additional Information
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {computedFeatures.isNewPayee && (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                        <Info className="h-3 w-3 mr-1" />
+                        No transaction history to verify payee
+                      </Badge>
+                    )}
+                    {computedFeatures.isWeekend && (
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                        <Info className="h-3 w-3 mr-1" />
+                        Transaction on weekend
+                      </Badge>
+                    )}
+                    {computedFeatures.isNightTransaction && (
+                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        Night transaction detected
+                      </Badge>
+                    )}
+                    {computedFeatures.isDormant && (
+                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                        <AlertCircle className="h-3 w-3 mr-1" />
+                        Dormant account ({computedFeatures.daysSinceLastTxn} days)
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Risk Factors Card */}
-      {riskFactors && riskFactors.length > 0 && (
+      {/* Customer Statistics Card - Only show if profile found */}
+      {profileFound && customerStatistics && computedFeatures && (
         <Card>
           <CardHeader className="bg-muted/50 border-b pb-3">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-lg">Risk Factors Detected</CardTitle>
-              <Badge variant="secondary" className="ml-auto">
-                {riskFactors.length} {riskFactors.length === 1 ? 'factor' : 'factors'}
-              </Badge>
+              <BarChart3 className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-lg">Customer Profile Statistics</CardTitle>
             </div>
           </CardHeader>
-          <CardContent className="p-4 space-y-2">
-            {riskFactors.map((factor, idx) => (
-              <RiskFactorItem key={idx} factor={factor} />
-            ))}
+          <CardContent className="p-4">
+            <StatisticsPanel 
+              statistics={customerStatistics} 
+              features={computedFeatures}
+            />
           </CardContent>
         </Card>
       )}
 
-      {/* No Risk Factors */}
-      {(!riskFactors || riskFactors.length === 0) && riskLevel === 'normal' && (
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3 text-green-700">
-              <CheckCircle2 className="h-6 w-6" />
-              <div>
-                <p className="font-medium">No Risk Factors Detected</p>
-                <p className="text-sm text-green-600">Transaction appears to follow normal patterns</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Feature Analysis Card */}
-      {featureContributions && featureContributions.length > 0 && (
-        <Card>
-          <CardHeader className="bg-muted/50 border-b pb-3">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-lg">Analysis Details</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="p-2">
-            <div className="divide-y">
-              {featureContributions.map((feature, idx) => (
-                <FeatureItem key={idx} feature={feature} />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+      {/* Recommendation */}
+      {recommendation && (
+        <Alert className={
+          riskLevel === 'critical' || riskLevel === 'high' ? 'bg-red-50 border-red-200' :
+          riskLevel === 'medium' ? 'bg-amber-50 border-amber-200' :
+          riskLevel === 'low' ? 'bg-yellow-50 border-yellow-200' :
+          'bg-green-50 border-green-200'
+        }>
+          {riskLevel === 'critical' || riskLevel === 'high' ? (
+            <ShieldAlert className="h-4 w-4 text-red-600" />
+          ) : riskLevel === 'medium' ? (
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+          ) : (
+            <ShieldCheck className="h-4 w-4 text-green-600" />
+          )}
+          <AlertTitle className={
+            riskLevel === 'critical' || riskLevel === 'high' ? 'text-red-800' :
+            riskLevel === 'medium' ? 'text-amber-800' :
+            riskLevel === 'low' ? 'text-yellow-800' :
+            'text-green-800'
+          }>
+            Recommendation
+          </AlertTitle>
+          <AlertDescription className={
+            riskLevel === 'critical' || riskLevel === 'high' ? 'text-red-700' :
+            riskLevel === 'medium' ? 'text-amber-700' :
+            riskLevel === 'low' ? 'text-yellow-700' :
+            'text-green-700'
+          }>
+            {recommendation}
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Demo Mode Warning */}
