@@ -5,6 +5,7 @@ import ValidationChecklist from './components/ValidationChecklist';
 import WorkflowStepper, { WorkflowStep } from './components/WorkflowStepper';
 import Dashboard from './components/Dashboard';
 import ManagerDashboard from './components/ManagerDashboard';
+import CustomerAnalysisDashboard from './components/CustomerAnalysisDashboard';
 import LoginScreen from './components/LoginScreen';
 import { analyzeChequeImage } from './services/geminiService';
 import { AnalysisState } from '../../shared/types';
@@ -12,7 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, FileText, Loader2, RefreshCw, LayoutDashboard, ScanLine, Phone, Check, X, Building2, Shield, LogOut, CheckCircle2 } from "lucide-react";
+import { AlertCircle, FileText, Loader2, RefreshCw, LayoutDashboard, ScanLine, Phone, Check, X, Building2, Shield, LogOut, CheckCircle2, Users } from "lucide-react";
 import { cn } from '@/lib/utils';
 import { BANKS, Bank } from '@/lib/bankContext';
 import { AuthProvider, useAuth } from '@/lib/authContext';
@@ -67,7 +68,7 @@ const INITIAL_STEPS: WorkflowStep[] = [
 
 const AppContent: React.FC = () => {
   const { user, isManager, logout } = useAuth();
-  const [mode, setMode] = useState<'scan' | 'dashboard'>('dashboard');
+  const [mode, setMode] = useState<'scan' | 'dashboard' | 'customers'>('dashboard');
   const [steps, setSteps] = useState<WorkflowStep[]>(INITIAL_STEPS);
   const [manualReviewRequired, setManualReviewRequired] = useState(false);
   const [sameBankWarning, setSameBankWarning] = useState<string | null>(null);
@@ -314,7 +315,7 @@ const AppContent: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight">{CURRENT_BANK.name}</h1>
-              <p className="text-xs opacity-80">ChequeMate AI - BACH Clearing</p>
+              <p className="text-xs opacity-80">SmartBankBD - BACH Clearing</p>
             </div>
           </div>
           
@@ -347,6 +348,15 @@ const AppContent: React.FC = () => {
                   <ScanLine className="h-4 w-4 mr-2" />
                   Process Cheque
                 </Button>
+                <Button 
+                  variant={mode === 'customers' ? 'secondary' : 'ghost'} 
+                  size="sm"
+                  onClick={() => setMode('customers')}
+                  className={mode === 'customers' ? '' : 'text-white/80 hover:text-white hover:bg-white/10'}
+                >
+                  <Users className="h-4 w-4 mr-2" />
+                  Customers
+                </Button>
               </div>
             )}
 
@@ -363,6 +373,8 @@ const AppContent: React.FC = () => {
           <ManagerDashboard currentBank={CURRENT_BANK} />
         ) : mode === 'dashboard' ? (
           <Dashboard currentBank={CURRENT_BANK} />
+        ) : mode === 'customers' ? (
+          <CustomerAnalysisDashboard currentBankCode={BANK_CODE} />
         ) : (
           <>
             <Card className="border-none shadow-none bg-transparent">

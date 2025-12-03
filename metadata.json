@@ -1,5 +1,5 @@
 {
-  "name": "ChequeMate AI",
-  "description": "Automated bank cheque processing using Gemini 2.5 Pro to extract key financial details like bank name, account numbers, and amounts from images.",
+  "name": "SmartBankBD",
+  "description": "",
   "requestFramePermissions": []
 }

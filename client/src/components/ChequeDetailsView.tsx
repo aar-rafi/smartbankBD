@@ -28,6 +28,7 @@ import {
 import { ChequeDetails, fetchChequeDetails, updateChequeDecision, runDeepVerification, deleteCheque } from '@/services/api';
 import BACHPackage from './BACHPackage';
 import FraudDetection from './FraudDetection';
+import CustomerProfileTable from './CustomerProfileTable';
 import { FraudDetectionResult, RiskFactor, FeatureContribution } from '../../../shared/types';
 
 interface ChequeDetailsViewProps {
@@ -449,6 +450,11 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                 </div>
                             </CardContent>
                         </Card>
+                    )}
+
+                    {/* Customer Behaviour Profile - Drawer Bank Only */}
+                    {isDrawerBank && cheque.drawer_account && (
+                        <CustomerProfileTable accountNumber={cheque.drawer_account} />
                     )}
 
                     {/* Run Verification Button - for drawer bank - MOVED TO TOP */}

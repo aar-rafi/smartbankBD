@@ -151,6 +151,59 @@ app.post('/api/account-details', async (req: Request, res: Response) => {
   }
 });
 
+// Get customer profile with full behaviour analysis
+app.get('/api/customer-profile/:accountNumber', async (req: Request, res: Response) => {
+  try {
+    const { accountNumber } = req.params;
+    const { getCustomerProfile } = await import('./services/customerBehaviourService.js');
+    const profile = await getCustomerProfile(accountNumber);
+    
+    if (!profile) {
+      return res.status(404).json({ success: false, error: 'Profile not found' });
+    }
+    
+    res.json({ success: true, profile });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to fetch customer profile';
+    console.error('Customer profile error:', error);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+// Detect behaviour anomalies for a transaction
+app.post('/api/behaviour-analysis', async (req: Request, res: Response) => {
+  try {
+    const { accountNumber, amount, payeeName } = req.body;
+    if (!accountNumber || !amount) {
+      return res.status(400).json({ error: 'Missing accountNumber or amount' });
+    }
+    
+    const { detectBehaviourAnomalies, calculateBehaviourScore } = await import('./services/customerBehaviourService.js');
+    const anomalies = await detectBehaviourAnomalies(accountNumber, amount, payeeName || 'Unknown');
+    const score = calculateBehaviourScore(anomalies);
+    
+    res.json({ success: true, anomalies, behaviourScore: score });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Behaviour analysis failed';
+    console.error('Behaviour analysis error:', error);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+// Get all customers with summary profiles for a bank
+app.get('/api/customers', async (req: Request, res: Response) => {
+  try {
+    const { bankCode } = req.query;
+    const { getAllCustomerSummaries } = await import('./services/customerBehaviourService.js');
+    const customers = await getAllCustomerSummaries(bankCode as string | undefined);
+    res.json({ success: true, customers });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to fetch customers';
+    console.error('Customers fetch error:', error);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
 app.post('/api/analyze', async (req: Request, res: Response) => {
   try {
     const { image, mimeType } = req.body;
