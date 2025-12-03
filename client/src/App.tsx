@@ -59,10 +59,10 @@ const extractSignatureRegion = (imageDataUrl: string, signatureBox: number[] | n
 const INITIAL_STEPS: WorkflowStep[] = [
   { id: 'data-package', label: 'Data Package', status: 'pending', description: 'Image Analysis' },
   { id: 'basic-val', label: 'Basic Validation', status: 'pending', description: 'Field Checks' },
-  { id: 'signature', label: 'Signature', status: 'pending', description: 'Verify & Match' },
-  { id: 'ai-check', label: 'AI Security', status: 'pending', description: 'SynthID Check' },
+  { id: 'signature', label: 'Signature', status: 'pending', description: 'Detection' },
+  { id: 'ai-check', label: 'AI Detection', status: 'pending', description: 'SynthID Check' },
   { id: 'fraud', label: 'Fraud Detection', status: 'pending', description: 'Risk Analysis' },
-  { id: 'update', label: 'Transaction', status: 'pending', description: 'Final Update' }
+  { id: 'update', label: 'Transaction', status: 'pending', description: 'Save Record' }
 ];
 
 const AppContent: React.FC = () => {
@@ -152,11 +152,16 @@ const AppContent: React.FC = () => {
             setManualReviewRequired(true);
           }
 
-          // Image quality check (basic AI detection at presenting bank)
+          // AI Detection / SynthID check
           updateStepStatus('ai-check', 'current');
-          const imageQualityRule = rules.find((r: any) => r.id === 'image-quality');
-          updateStepStatus('ai-check', imageQualityRule?.status === 'pass' ? 'completed' : 'warning');
-          // Don't block on image quality warning - deep check happens at drawer bank
+          const aiDetectionRule = rules.find((r: any) => r.id === 'ai-detection');
+          if (aiDetectionRule?.status === 'fail') {
+            updateStepStatus('ai-check', 'error');
+          } else if (aiDetectionRule?.status === 'warning') {
+            updateStepStatus('ai-check', 'warning');
+          } else {
+            updateStepStatus('ai-check', 'completed');
+          }
 
           // Fraud Detection (parallel - non-blocking for demo)
           updateStepStatus('fraud', 'current');
@@ -233,17 +238,16 @@ const AppContent: React.FC = () => {
             updateStepStatus('update', 'completed');
             console.log(`Cheque saved to database successfully${!validationPassed ? ' (as faulty record)' : ''}`);
             
-            // After successful save, automatically switch to dashboard after showing success message
-            // Only auto-redirect if not requiring manual review
-            if (!manualReviewRequired) {
-              setTimeout(() => {
-                resetAnalysis();
-                setMode('dashboard');
-                if (savedChequeId) {
-                  console.log(`Cheque saved with ID: ${savedChequeId} - view in dashboard`);
-                }
-              }, 3000); // 3 second delay to show success message before redirecting
-            }
+            // Auto-redirect disabled for demo - user will manually navigate
+            // if (!manualReviewRequired) {
+            //   setTimeout(() => {
+            //     resetAnalysis();
+            //     setMode('dashboard');
+            //     if (savedChequeId) {
+            //       console.log(`Cheque saved with ID: ${savedChequeId} - view in dashboard`);
+            //     }
+            //   }, 3000);
+            // }
           } catch (dbError) {
             console.error('Failed to save cheque to database:', dbError);
             updateStepStatus('update', 'warning');
@@ -430,7 +434,7 @@ const AppContent: React.FC = () => {
                               <CheckCircle2 className="h-4 w-4 text-green-600" />
                               <AlertTitle className="text-green-800">Cheque Processed Successfully</AlertTitle>
                               <AlertDescription className="text-green-700 text-sm mt-1">
-                                The cheque has been saved and will appear in your dashboard. Redirecting...
+                                The cheque has been saved and will appear in your dashboard.
                               </AlertDescription>
                             </Alert>
                             <Button variant="outline" className="w-full" onClick={() => { resetAnalysis(); setMode('dashboard'); }}>

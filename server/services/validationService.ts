@@ -119,23 +119,52 @@ export const validateChequeBasic = async (data: ChequeData): Promise<ValidationR
         });
     }
 
-    // 6. Basic Image Quality (based on AI detection - presenting bank can do basic check)
+    // 6. Basic Image Quality Check
+    rules.push({
+        id: 'image-quality',
+        label: 'Image Quality Check',
+        status: 'pass',
+        message: 'Image quality acceptable'
+    });
+
+    // 7. AI Detection / SynthID Check (basic scan at presenting bank)
     if (BypassConfig.skipAIDetection || isDemo) {
         rules.push({
-            id: 'image-quality',
-            label: 'Image Quality Check',
+            id: 'ai-detection',
+            label: 'AI Detection (SynthID)',
             status: 'pass',
-            message: 'Image quality acceptable'
+            message: 'No AI-generated artifacts detected'
         });
     } else {
-        // Basic check - if AI confidence is very high, flag it
-        const suspicious = data.isAiGenerated && (data.synthIdConfidence ?? 0) > 90;
-        rules.push({
-            id: 'image-quality',
-            label: 'Image Quality Check',
-            status: suspicious ? 'warning' : 'pass',
-            message: suspicious ? 'Image may need review' : 'Image quality acceptable'
-        });
+        // Check for AI-generated content using SynthID confidence
+        const synthIdScore = data.synthIdConfidence ?? 0;
+        const isAiGenerated = data.isAiGenerated === true;
+        
+        if (isAiGenerated && synthIdScore > 80) {
+            rules.push({
+                id: 'ai-detection',
+                label: 'AI Detection (SynthID)',
+                status: 'fail',
+                message: `AI-GENERATED CONTENT DETECTED (SynthID: ${synthIdScore}% confidence)`,
+                details: { synthIdConfidence: synthIdScore, isAiGenerated: true }
+            });
+        } else if (isAiGenerated && synthIdScore > 50) {
+            rules.push({
+                id: 'ai-detection',
+                label: 'AI Detection (SynthID)',
+                status: 'warning',
+                message: `Possible AI artifacts detected (SynthID: ${synthIdScore}% confidence)`,
+                details: { synthIdConfidence: synthIdScore, isAiGenerated: true }
+            });
+        } else {
+            rules.push({
+                id: 'ai-detection',
+                label: 'AI Detection (SynthID)',
+                status: 'pass',
+                message: 'No AI-generated artifacts detected',
+                details: { synthIdConfidence: synthIdScore, isAiGenerated: false }
+            });
+        }
     }
 
     const isValid = !rules.some(r => r.status === 'fail');

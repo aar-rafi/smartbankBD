@@ -1,0 +1,35 @@
+{
+  "package": "OUTWARD_2025-12-03_IBBL_70",
+  "version": "2.1",
+  "encryption": "AES-256-CBC",
+  "iv": "866299fb1e08eba6a48754605a845633",
+  "files": [
+    {
+      "name": "batch_header.dat",
+      "size": 12623,
+      "checksum": "8be9b95c3d5aed855b039dcecd897541"
+    },
+    {
+      "name": "items.dat",
+      "size": 29846,
+      "checksum": "546e2c14ff6bb7cf16fd76f8bd1c2b4e"
+    },
+    {
+      "name": "images/IMG76503_FG.TIF",
+      "size": 32886,
+      "checksum": "0ec7c53441a31d392ff1621b75840970"
+    },
+    {
+      "name": "images/IMG76503_FB.TIF",
+      "size": 35188,
+      "checksum": "cd15f6b710f0c369ed87d4388ee6c2fb"
+    },
+    {
+      "name": "images/IMG76503_BB.TIF",
+      "size": 12390,
+      "checksum": "dbb87229008f1b1243fc89c09ea2acbd"
+    }
+  ],
+  "signature": "22ef42ac0543782dbe7a2a7d06b2bbe26ec1956bc064880953b35e99a51d589b",
+  "timestamp": "2025-12-03T01:14:04.522Z"
+}
