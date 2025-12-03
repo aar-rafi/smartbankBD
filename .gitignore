@@ -28,3 +28,11 @@ dist-ssr
 venv/
 best_siamese_transformer.pth
 *.pyc
+
+# Sensitive files - should not be committed
+start_mushfiq.sh
+.env
+.env.*
+*.key
+*.pem
+*.secret
