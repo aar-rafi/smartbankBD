@@ -58,6 +58,45 @@ export interface FeatureContribution {
   impact: 'normal' | 'medium' | 'high';
 }
 
+// Detailed customer profile statistics from database
+export interface CustomerStatistics {
+  avgTransactionAmt: number;
+  maxTransactionAmt: number;
+  minTransactionAmt: number;
+  stddevTransactionAmt: number;
+  totalTransactionCount: number;
+  bounceRate: number;
+  accountBalance: number;
+  accountAgeDays: number;
+  uniquePayeeCount: number;
+  monthlyAvgCount: number;
+}
+
+// Computed ML features for transparency
+export interface ComputedFeatures {
+  amountZscore: number;
+  amountToMaxRatio: number;
+  amountToBalanceRatio: number;
+  isAboveMax: boolean;
+  isNewPayee: boolean;
+  payeeFrequency: number;
+  txnCount24h: number;
+  txnCount7d: number;
+  daysSinceLastTxn: number;
+  isDormant: boolean;
+  isNightTransaction: boolean;
+  isWeekend: boolean;
+  isUnusualHour: boolean;
+  signatureScore: number;
+}
+
+// Safe factors that reduce risk
+export interface SafeFactor {
+  factor: string;
+  description: string;
+  value?: string | number | boolean;
+}
+
 export interface FraudDetectionResult {
   modelAvailable: boolean;
   dataAvailable: boolean;
@@ -68,7 +107,10 @@ export interface FraudDetectionResult {
   decision?: 'approve' | 'review' | 'reject';
   confidence?: number;
   riskFactors: RiskFactor[];
+  safeFactors?: SafeFactor[];  // NEW: Positive indicators
   featureContributions: FeatureContribution[];
+  customerStatistics?: CustomerStatistics;  // NEW: Profile data
+  computedFeatures?: ComputedFeatures;  // NEW: ML features
   explanations?: string[];
   recommendation: string | null;
   error?: string;
