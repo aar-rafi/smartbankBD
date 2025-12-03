@@ -386,7 +386,7 @@ export const getDashboardCheques = async (limit = 20) => {
  */
 export const getChequeDetails = async (chequeId: number) => {
   try {
-    // Basic Cheque Info
+    // Basic Cheque Info with account details
     const chequeResult = await pool.query(
       `SELECT 
         c.*, 
@@ -394,7 +394,12 @@ export const getChequeDetails = async (chequeId: number) => {
         db.bank_code as drawer_bank_code,
         pb.bank_name as presenting_bank_name,
         pb.bank_code as presenting_bank_code,
-        a.account_number as drawer_account, a.holder_name as drawer_name
+        a.account_number as drawer_account, 
+        a.holder_name as drawer_name,
+        a.balance as account_balance,
+        a.status as account_status,
+        a.account_type,
+        a.created_at as account_opened_at
        FROM cheques c
        JOIN banks db ON c.drawer_bank_id = db.bank_id
        LEFT JOIN banks pb ON c.presenting_bank_id = pb.bank_id

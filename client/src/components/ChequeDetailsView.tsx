@@ -21,7 +21,9 @@ import {
     TrendingUp,
     AlertTriangle,
     Loader2,
-    Trash2
+    Trash2,
+    Wallet,
+    BanknoteIcon
 } from "lucide-react";
 import { ChequeDetails, fetchChequeDetails, updateChequeDecision, runDeepVerification, deleteCheque } from '@/services/api';
 import BACHPackage from './BACHPackage';
@@ -347,6 +349,106 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                             </div>
                         </CardContent>
                     </Card>
+
+                    {/* Account & Funds Section - Only visible to drawer bank */}
+                    {isDrawerBank && (
+                        <Card className={`border-2 ${
+                            cheque.account_balance !== undefined && parseFloat(cheque.amount) > parseFloat(cheque.account_balance)
+                                ? 'border-red-300 bg-red-50/50'
+                                : 'border-green-300 bg-green-50/50'
+                        }`}>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="flex items-center gap-2">
+                                    <Wallet className="h-5 w-5" />
+                                    Account & Funds Verification
+                                </CardTitle>
+                                <CardDescription>
+                                    Drawer account details and balance check
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Account Holder</p>
+                                        <p className="font-medium">{cheque.drawer_name || 'N/A'}</p>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Account Type</p>
+                                        <p className="font-medium capitalize">{cheque.account_type || 'N/A'}</p>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Account Status</p>
+                                        <Badge variant={cheque.account_status === 'active' ? 'default' : 'destructive'}>
+                                            {cheque.account_status?.toUpperCase() || 'UNKNOWN'}
+                                        </Badge>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Account Age</p>
+                                        <p className="font-medium">
+                                            {cheque.account_opened_at 
+                                                ? `${Math.floor((Date.now() - new Date(cheque.account_opened_at).getTime()) / (1000 * 60 * 60 * 24))} days`
+                                                : 'N/A'}
+                                        </p>
+                                    </div>
+                                </div>
+                                
+                                {/* Balance vs Amount Comparison */}
+                                <div className="mt-4 pt-4 border-t">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-3 rounded-lg bg-white border">
+                                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                                <Wallet className="h-3 w-3" /> Available Balance
+                                            </p>
+                                            <p className="text-xl font-bold text-blue-600">
+                                                {cheque.account_balance !== undefined 
+                                                    ? formatCurrency(parseFloat(cheque.account_balance))
+                                                    : 'N/A'}
+                                            </p>
+                                        </div>
+                                        <div className="p-3 rounded-lg bg-white border">
+                                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                                <BanknoteIcon className="h-3 w-3" /> Cheque Amount
+                                            </p>
+                                            <p className="text-xl font-bold">
+                                                {formatCurrency(cheque.amount)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Funds Check Result */}
+                                    {cheque.account_balance !== undefined && (
+                                        <div className={`mt-3 p-3 rounded-lg flex items-center gap-2 ${
+                                            parseFloat(cheque.amount) > parseFloat(cheque.account_balance)
+                                                ? 'bg-red-100 text-red-800'
+                                                : 'bg-green-100 text-green-800'
+                                        }`}>
+                                            {parseFloat(cheque.amount) > parseFloat(cheque.account_balance) ? (
+                                                <>
+                                                    <XCircle className="h-5 w-5" />
+                                                    <div>
+                                                        <p className="font-semibold">INSUFFICIENT FUNDS</p>
+                                                        <p className="text-sm">
+                                                            Shortfall: {formatCurrency(parseFloat(cheque.amount) - parseFloat(cheque.account_balance))}
+                                                        </p>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <CheckCircle2 className="h-5 w-5" />
+                                                    <div>
+                                                        <p className="font-semibold">SUFFICIENT FUNDS</p>
+                                                        <p className="text-sm">
+                                                            Remaining after transaction: {formatCurrency(parseFloat(cheque.account_balance) - parseFloat(cheque.amount))}
+                                                        </p>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* Run Verification Button - for drawer bank - MOVED TO TOP */}
                     {isDrawerBank && (cheque.status === 'at_drawer_bank' || cheque.status === 'clearing') && (
