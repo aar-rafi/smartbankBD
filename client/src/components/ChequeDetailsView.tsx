@@ -822,14 +822,14 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                             )}
                                         </div>
                                         <div className="flex-1">
-                                            <p className={`font-medium ${item.done ? 'text-foreground' : 'text-muted-foreground'}`}>
-                                                {item.step}
+                                            <div className={`font-medium flex items-center gap-2 ${item.done ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                                <span>{item.step}</span>
                                                 {item.result && (
-                                                    <Badge className="ml-2" variant={item.result === 'Approved' ? 'default' : 'destructive'}>
+                                                    <Badge variant={item.result === 'Approved' ? 'default' : 'destructive'}>
                                                         {item.result}
                                                     </Badge>
                                                 )}
-                                            </p>
+                                            </div>
                                             {item.time && item.done && (
                                                 <p className="text-xs text-muted-foreground">
                                                     {new Date(item.time).toLocaleString()}

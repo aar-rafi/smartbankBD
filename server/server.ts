@@ -292,18 +292,24 @@ app.post('/api/cheques', async (req: Request, res: Response) => {
     const { chequeId, sameBankDeposit } = result;
     
     // If analysis results include AI verification data, store it
-    if (req.body.analysisResults) {
+    // Only store if we have a valid chequeId
+    if (req.body.analysisResults && chequeId) {
       const ar = req.body.analysisResults;
-      await storeDeepVerification(chequeId, {
-        signatureScore: ar.signatureScore,
-        signatureMatch: ar.signatureMatch,
-        fraudRiskScore: ar.fraudRiskScore,
-        riskLevel: ar.riskLevel || 'low',
-        aiDecision: ar.aiDecision || 'approve',
-        aiConfidence: ar.aiConfidence || 85,
-        aiReasoning: ar.aiReasoning,
-        behaviorFlags: ar.behaviorFlags || []
-      });
+      try {
+        await storeDeepVerification(chequeId, {
+          signatureScore: ar.signatureScore,
+          signatureMatch: ar.signatureMatch,
+          fraudRiskScore: ar.fraudRiskScore,
+          riskLevel: ar.riskLevel || 'low',
+          aiDecision: ar.aiDecision || 'approve',
+          aiConfidence: ar.aiConfidence || 85,
+          aiReasoning: ar.aiReasoning,
+          behaviorFlags: ar.behaviorFlags || []
+        });
+      } catch (verifyError) {
+        // Don't fail the whole request if deep verification storage fails
+        console.error('Error storing deep verification (non-fatal):', verifyError);
+      }
     }
     
     res.json({ 

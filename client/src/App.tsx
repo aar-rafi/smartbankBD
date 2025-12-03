@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import ImageUploader from './components/ImageUploader';
 import ExtractedDetails from './components/ExtractedDetails';
 import ValidationChecklist from './components/ValidationChecklist';
-import FraudDetection from './components/FraudDetection';
 import WorkflowStepper, { WorkflowStep } from './components/WorkflowStepper';
 import Dashboard from './components/Dashboard';
 import ManagerDashboard from './components/ManagerDashboard';
