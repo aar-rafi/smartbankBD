@@ -288,7 +288,8 @@ app.get('/api/bank/:bankCode/cheques/outward', async (req: Request, res: Respons
 app.post('/api/cheques', async (req: Request, res: Response) => {
   try {
     const { createCheque, storeDeepVerification } = await import('./services/dbQueries.js');
-    const chequeId = await createCheque(req.body);
+    const result = await createCheque(req.body);
+    const { chequeId, sameBankDeposit } = result;
     
     // If analysis results include AI verification data, store it
     if (req.body.analysisResults) {
@@ -305,7 +306,14 @@ app.post('/api/cheques', async (req: Request, res: Response) => {
       });
     }
     
-    res.json({ success: true, chequeId });
+    res.json({ 
+      success: true, 
+      chequeId,
+      sameBankDeposit,
+      warning: sameBankDeposit 
+        ? 'This is a same-bank deposit (internal transfer). It does not require BACH inter-bank clearing.'
+        : undefined
+    });
   } catch (error) {
     console.error('Error creating cheque:', error);
     const msg = error instanceof Error ? error.message : 'Failed to create cheque';
@@ -313,15 +321,77 @@ app.post('/api/cheques', async (req: Request, res: Response) => {
   }
 });
 
-// Send cheque to BACH
+// Send cheque to BACH - generates actual BACH package files
 app.post('/api/cheques/:id/send-to-bach', async (req: Request, res: Response) => {
   try {
-    const { sendToBACH } = await import('./services/dbQueries.js');
-    const result = await sendToBACH(Number(req.params.id));
-    res.json({ success: true, ...result });
+    const { sendToBACH, getChequeDetails } = await import('./services/dbQueries.js');
+    const { generateBACHPackage } = await import('./services/bachService.js');
+    
+    const chequeId = Number(req.params.id);
+    
+    // Get cheque details for BACH package
+    const details = await getChequeDetails(chequeId);
+    if (!details) {
+      return res.status(404).json({ success: false, error: 'Cheque not found' });
+    }
+    
+    // Generate actual BACH package files
+    const bachPackage = await generateBACHPackage({
+      chequeId,
+      chequeNumber: details.cheque.cheque_number,
+      amount: parseFloat(details.cheque.amount),
+      payeeName: details.cheque.payee_name,
+      drawerAccount: details.cheque.drawer_account,
+      drawerBankCode: details.cheque.drawer_bank_code,
+      presentingBankCode: details.cheque.presenting_bank_code,
+      micrCode: details.cheque.micr_code || '',
+      issueDate: details.cheque.issue_date,
+      chequeImagePath: details.cheque.cheque_image_path,
+      signatureImagePath: details.cheque.signature_image_path
+    });
+    
+    // Update database status
+    const result = await sendToBACH(chequeId);
+    
+    res.json({ 
+      success: true, 
+      ...result,
+      bachPackage: {
+        packageName: bachPackage.packageName,
+        files: bachPackage.files,
+        encrypted: bachPackage.encrypted
+      }
+    });
   } catch (error) {
     console.error('Error sending to BACH:', error);
     res.status(500).json({ success: false, error: 'Failed to send to BACH' });
+  }
+});
+
+// List all BACH packages
+app.get('/api/bach/packages', async (req: Request, res: Response) => {
+  try {
+    const { listBACHPackages } = await import('./services/bachService.js');
+    const packages = await listBACHPackages();
+    res.json({ success: true, packages });
+  } catch (error) {
+    console.error('Error listing BACH packages:', error);
+    res.status(500).json({ success: false, error: 'Failed to list BACH packages' });
+  }
+});
+
+// Get BACH package details
+app.get('/api/bach/packages/:name', async (req: Request, res: Response) => {
+  try {
+    const { getBACHPackageDetails } = await import('./services/bachService.js');
+    const details = await getBACHPackageDetails(req.params.name);
+    if (!details) {
+      return res.status(404).json({ success: false, error: 'Package not found' });
+    }
+    res.json({ success: true, details });
+  } catch (error) {
+    console.error('Error getting BACH package:', error);
+    res.status(500).json({ success: false, error: 'Failed to get BACH package' });
   }
 });
 

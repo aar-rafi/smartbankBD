@@ -604,26 +604,50 @@ export const createCheque = async (data: {
       drawerBankId = bank_id;
     }
 
-    // Check if cheque already exists
+    // Check for same-bank deposit (internal transfer - not inter-bank clearing)
+    const isSameBankDeposit = drawerBankId === presentingBankId;
+    if (isSameBankDeposit) {
+      console.warn(`Same-bank deposit detected: drawer and presenting bank are both ${data.presentingBankCode}`);
+      // Still allow it but mark appropriately - will return flag to client
+    }
+
+    // Check if this exact cheque already exists (same cheque number at same presenting bank)
     const existingCheque = await pool.query(
-      'SELECT cheque_id FROM cheques WHERE cheque_number = $1',
-      [numericChequeNumber]
+      'SELECT cheque_id, status FROM cheques WHERE cheque_number = $1 AND presenting_bank_id = $2',
+      [numericChequeNumber, presentingBankId]
     );
 
     if (existingCheque.rows.length > 0) {
-      // Update existing
+      // Update existing cheque at this presenting bank
       const chequeId = existingCheque.rows[0].cheque_id;
+      const existingStatus = existingCheque.rows[0].status;
+      
+      // Don't overwrite if already processed (approved/rejected/settled)
+      if (['approved', 'rejected', 'settled', 'bounced'].includes(existingStatus)) {
+        console.log(`Cheque ${numericChequeNumber} already processed with status ${existingStatus}, not updating`);
+        return chequeId;
+      }
+      
       const chequeStatus = data.validationFailed ? 'validation_failed' : 'validated';
       await pool.query(
         `UPDATE cheques SET 
-          presenting_bank_id = $1, 
-          status = $2,
-          cheque_image_path = COALESCE($3, cheque_image_path),
-          signature_image_path = COALESCE($4, signature_image_path)
-         WHERE cheque_id = $5`,
-        [presentingBankId, chequeStatus, data.chequeImagePath, data.signatureImagePath, chequeId]
+          status = $1,
+          cheque_image_path = COALESCE($2, cheque_image_path),
+          signature_image_path = COALESCE($3, signature_image_path)
+         WHERE cheque_id = $4`,
+        [chequeStatus, data.chequeImagePath, data.signatureImagePath, chequeId]
       );
       return chequeId;
+    }
+    
+    // Check if same cheque number exists at DIFFERENT presenting bank (duplicate submission)
+    const duplicateCheck = await pool.query(
+      'SELECT cheque_id, presenting_bank_id FROM cheques WHERE cheque_number = $1',
+      [numericChequeNumber]
+    );
+    
+    if (duplicateCheck.rows.length > 0) {
+      console.warn(`Cheque ${numericChequeNumber} already exists at another bank (ID: ${duplicateCheck.rows[0].cheque_id}). Creating new record for this presenting bank.`);
     }
 
     // Determine status based on validation result
@@ -716,7 +740,12 @@ export const createCheque = async (data: {
       );
     }
 
-    return chequeId;
+    return { 
+      chequeId, 
+      sameBankDeposit: isSameBankDeposit,
+      drawerBankId,
+      presentingBankId
+    };
   } catch (error) {
     console.error('Error creating cheque:', error);
     throw error;

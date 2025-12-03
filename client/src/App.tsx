@@ -71,6 +71,7 @@ const AppContent: React.FC = () => {
   const [mode, setMode] = useState<'scan' | 'dashboard'>('dashboard');
   const [steps, setSteps] = useState<WorkflowStep[]>(INITIAL_STEPS);
   const [manualReviewRequired, setManualReviewRequired] = useState(false);
+  const [sameBankWarning, setSameBankWarning] = useState<string | null>(null);
   
   const [state, setState] = useState<AnalysisState>({
     status: 'idle',
@@ -192,7 +193,7 @@ const AppContent: React.FC = () => {
             const failedRules = rules.filter((r: any) => r.status === 'fail');
             const failureReasons = failedRules.map((r: any) => `${r.label}: ${r.message || 'Failed'}`).join('; ');
             
-            savedChequeId = await createCheque({
+            const createResult = await createCheque({
               chequeNumber: data.chequeNumber || `CHQ${Date.now()}`,
               drawerAccountNumber: data.accountNumber || '',
               payeeName: data.payeeName || 'Unknown',
@@ -224,6 +225,12 @@ const AppContent: React.FC = () => {
                 confidence: data.synthIdConfidence || 0
               }
             });
+            savedChequeId = createResult.chequeId;
+            
+            // Check for same-bank deposit warning
+            if (createResult.sameBankDeposit) {
+              setSameBankWarning(createResult.warning || 'This is a same-bank deposit (internal transfer). No BACH clearing required.');
+            }
             updateStepStatus('update', 'completed');
             console.log(`Cheque saved to database successfully${!validationPassed ? ' (as faulty record)' : ''}`);
             
@@ -284,6 +291,7 @@ const AppContent: React.FC = () => {
       error: null, 
       imagePreview: null 
     });
+    setSameBankWarning(null);
     setSteps(INITIAL_STEPS);
     setManualReviewRequired(false);
   };
@@ -374,6 +382,28 @@ const AppContent: React.FC = () => {
                       <X className="mr-2 h-4 w-4" /> Reject
                     </Button>
                   </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {sameBankWarning && (
+              <Alert className="border-blue-500 bg-blue-50">
+                <Building2 className="h-5 w-5 text-blue-600" />
+                <AlertTitle className="text-blue-800 text-lg font-semibold">Same-Bank Deposit Detected</AlertTitle>
+                <AlertDescription className="mt-2">
+                  <p className="text-blue-700 mb-2">{sameBankWarning}</p>
+                  <p className="text-blue-600 text-sm">
+                    This cheque is drawn on an account at this same bank. It will be processed as an internal transfer 
+                    and does not need to go through BACH inter-bank clearing.
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mt-3"
+                    onClick={() => setSameBankWarning(null)}
+                  >
+                    Dismiss
+                  </Button>
                 </AlertDescription>
               </Alert>
             )}

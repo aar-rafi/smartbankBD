@@ -1,0 +1,35 @@
+{
+  "package": "OUTWARD_2025-12-02_BANK_A_79",
+  "version": "2.1",
+  "encryption": "AES-256-CBC",
+  "iv": "1da68573756e65a7c0a61f700f9adc93",
+  "files": [
+    {
+      "name": "batch_header.dat",
+      "size": 34198,
+      "checksum": "92acde03d3713a4ea43690706d8324e1"
+    },
+    {
+      "name": "items.dat",
+      "size": 33799,
+      "checksum": "cf221d86a639099e9dfcaec568086e7b"
+    },
+    {
+      "name": "images/IMG00001_FG.TIF",
+      "size": 3303,
+      "checksum": "7e4c460205531a70f8b1d72417bdcf51"
+    },
+    {
+      "name": "images/IMG00001_FB.TIF",
+      "size": 37488,
+      "checksum": "f898d45be0b19d6ba3f46c942acb7577"
+    },
+    {
+      "name": "images/IMG00001_BB.TIF",
+      "size": 38519,
+      "checksum": "f937e82227c8cc0f277a4a5ac5730048"
+    }
+  ],
+  "signature": "ee5131945ae5ac15392147b5c9d8351b8bc259b669c781e9e242d73ab542191c",
+  "timestamp": "2025-12-02T23:42:42.614Z"
+}
