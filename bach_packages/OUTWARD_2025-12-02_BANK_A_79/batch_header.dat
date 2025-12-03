@@ -1,0 +1,12 @@
+BACH OUTWARD CLEARING BATCH
+========================================
+Batch ID: 79
+Created: 2025-12-02T23:42:42.612Z
+Presenting Bank: BANK_A
+Destination Bank: SONALI
+Total Items: 1
+Total Amount: 15000.00 BDT
+========================================
+Format Version: BACH-2.1
+Encryption: AES-256-CBC
+Checksum: a22089e17c69e5c4d9cd309fcef1fb68
