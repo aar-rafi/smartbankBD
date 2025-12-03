@@ -39,6 +39,7 @@ export interface ValidationResult {
   signatureData?: SignatureData; // signature images for visual comparison
   riskScore?: number;
   riskLevel?: string;
+  fraudDetection?: any; // Full fraud detection result from ML service
 }
 
 // ============================================================

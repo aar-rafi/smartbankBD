@@ -28,15 +28,46 @@ export interface FeatureContribution {
   impact: 'normal' | 'medium' | 'high';
 }
 
+export interface SafeFactor {
+  factor: string;
+  description: string;
+  value?: string | number | boolean;
+}
+
+export interface CustomerStatistics {
+  avgTransactionAmt: number;
+  maxTransactionAmt: number;
+  totalTransactionCount: number;
+  uniquePayeeCount: number;
+  accountBalance: number;
+  accountAgeDays: number;
+}
+
+export interface ComputedFeatures {
+  amountZscore: number;
+  amountToBalanceRatio: number;
+  isNewPayee: boolean;
+  txnCount24h: number;
+  isDormant: boolean;
+  signatureScore: number;
+  isNightTransaction: boolean;
+  isWeekend: boolean;
+  daysSinceLastTxn?: number;
+}
+
 export interface FraudDetectionResult {
   modelAvailable: boolean;
   dataAvailable: boolean;
   profileFound: boolean;
   fraudScore: number | null;
-  riskLevel: 'normal' | 'low' | 'medium' | 'high' | null;
+  riskLevel: 'normal' | 'low' | 'medium' | 'high' | 'critical' | null;
   riskFactors: RiskFactor[];
+  safeFactors?: SafeFactor[];
   featureContributions: FeatureContribution[];
+  customerStatistics?: CustomerStatistics;
+  computedFeatures?: ComputedFeatures;
   recommendation: string | null;
+  confidence?: number;
   error?: string;
 }
 

@@ -52,6 +52,7 @@ interface VerificationResult {
     };
     riskScore?: number;
     riskLevel?: string;
+    fraudDetection?: FraudDetectionResult;
 }
 
 const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, currentBankCode, onBack }) => {
@@ -559,9 +560,10 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                     )}
 
                     {/* ML Fraud Detection - Drawer Bank Only */}
-                    {isDrawerBank && fraudDetectionResult && (
+                    {/* Prefer live verification result over stored data */}
+                    {isDrawerBank && (verificationResult?.fraudDetection || fraudDetectionResult) && (
                         <FraudDetection 
-                            result={fraudDetectionResult} 
+                            result={verificationResult?.fraudDetection || fraudDetectionResult!} 
                             isLoading={false}
                         />
                     )}

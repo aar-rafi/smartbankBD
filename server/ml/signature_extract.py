@@ -57,20 +57,9 @@ def save_cropped_signature(img, bbox, out_path, with_alpha=True):
 	x1, y1, x2, y2 = bbox
 	crop = img[y1:y2, x1:x2]
 
-	gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-	_, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
-	if with_alpha:
-		b, g, r = cv2.split(crop)
-		alpha = mask
-		rgba = cv2.merge([b, g, r, alpha])
-		cv2.imwrite(out_path, rgba)
-	else:
-		# place on white background
-		white = 255 * np.ones_like(crop)
-		mask3 = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) // 255
-		composite = np.where(mask3 == 1, crop, white)
-		cv2.imwrite(out_path, composite)
+	# Save the original color crop directly (no grayscale/alpha processing)
+	# This preserves the natural appearance for ML comparison
+	cv2.imwrite(out_path, crop)
 
 
 def main():

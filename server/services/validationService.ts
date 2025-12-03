@@ -345,11 +345,15 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
     // Fetch reference signature from our database
     if (data.accountNumber && data.hasSignature) {
         try {
+            console.log(`[Signature] Fetching reference for account: ${data.accountNumber}`);
             const refSignatureBuffer = await getReferenceSignature(data.accountNumber);
             if (refSignatureBuffer) {
                 signatureData.reference = Buffer.isBuffer(refSignatureBuffer)
                     ? refSignatureBuffer.toString('base64')
                     : refSignatureBuffer;
+                console.log(`[Signature] Reference signature loaded (${signatureData.reference?.length || 0} chars base64)`);
+            } else {
+                console.log(`[Signature] No reference signature found for account: ${data.accountNumber}`);
             }
         } catch (error) {
             console.error('Failed to fetch reference signature:', error);
@@ -442,10 +446,12 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
     let fraudRiskScore = 0;
     let fraudRiskLevel = 'low';
     let fraudRiskFactors: string[] = [];
+    let fullFraudResult: any = null;
     
     try {
         const { detectFraud } = await import('./fraudDetectionService.js');
         const fraudResult = await detectFraud(data, signatureData.matchScore ?? 85);
+        fullFraudResult = fraudResult; // Store full result for return
         
         if (fraudResult.modelAvailable && fraudResult.fraudScore !== null) {
             fraudRiskScore = fraudResult.fraudScore;
@@ -505,7 +511,9 @@ export const verifyChequeFull = async (data: ChequeData): Promise<ValidationResu
         rules, 
         signatureData,
         riskScore,
-        riskLevel
+        riskLevel,
+        // Include full fraud detection result for UI
+        fraudDetection: fullFraudResult
     };
 };
 

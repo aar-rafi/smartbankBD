@@ -148,9 +148,11 @@ export const getAccountDetails = async (accountNumber: string) => {
  */
 export const getReferenceSignature = async (accountNumber: string): Promise<Buffer | null> => {
   try {
+    console.log(`[getReferenceSignature] Looking up signature for account: "${accountNumber}"`);
+    
     // Get account_id from account_number, then fetch the reference signature path
     const result = await pool.query(
-      `SELECT asig.image_path 
+      `SELECT asig.image_path, a.holder_name
        FROM account_signatures asig
        JOIN accounts a ON asig.account_id = a.account_id
        WHERE a.account_number = $1
@@ -159,55 +161,31 @@ export const getReferenceSignature = async (accountNumber: string): Promise<Buff
       [accountNumber]
     );
 
+    console.log(`[getReferenceSignature] Query result: ${JSON.stringify(result.rows)}`);
+
     if (result.rows.length === 0 || !result.rows[0].image_path) {
+      console.log(`[getReferenceSignature] No signature found for account: ${accountNumber}`);
       return null;
     }
 
     const imagePath = result.rows[0].image_path;
+    console.log(`[getReferenceSignature] Found signature path: ${imagePath} for ${result.rows[0].holder_name}`);
 
-    // Try to read the file
+    // Read the original file directly (no grayscale conversion - let ML model handle it)
     try {
       // imagePath is relative to project root (e.g., '/signatures/sig-1.jpg')
       // Since server runs from /server folder, go up one level to project root
       const projectRoot = path.resolve(process.cwd(), '..');
       const fullPath = path.join(projectRoot, imagePath);
       
-      // Convert to grayscale using Python script
-      const tempDir = path.resolve('temp');
-      await fs.mkdir(tempDir, { recursive: true });
-      const timestamp = Date.now();
-      const grayOutputPath = path.join(tempDir, `ref_sig_gray_${timestamp}.png`);
+      console.log(`[getReferenceSignature] Reading file from: ${fullPath}`);
+      const imageBuffer = await fs.readFile(fullPath);
+      console.log(`[getReferenceSignature] Successfully read ${imageBuffer.length} bytes`);
       
-      // Script path is relative to server directory (same as analysisService)
-      const scriptPath = path.resolve('ml/convert_to_grayscale.py');
-      const pythonPath = process.env.PYTHON_PATH || path.resolve('database/venv/bin/python');
-      
-      const command = `"${pythonPath}" "${scriptPath}" "${fullPath}" "${grayOutputPath}"`;
-      const { stdout, stderr } = await execPromise(command);
-      
-      if (stderr) console.warn('Grayscale conversion stderr:', stderr);
-      
-      // Read the grayscale version
-      const grayBuffer = await fs.readFile(grayOutputPath);
-      
-      // Clean up temp file
-      try {
-        await fs.unlink(grayOutputPath);
-      } catch (e) {
-        // Ignore cleanup errors
-      }
-      
-      return grayBuffer;
+      return imageBuffer;
     } catch (err) {
-      console.warn(`Could not read or convert signature file at ${imagePath}:`, err);
-      // Fallback: try to read original file without conversion
-      try {
-        const projectRoot = path.resolve(process.cwd(), '..');
-        const fullPath = path.join(projectRoot, imagePath);
-        return await fs.readFile(fullPath);
-      } catch (fallbackErr) {
-        return null;
-      }
+      console.warn(`Could not read signature file at ${imagePath}:`, err);
+      return null;
     }
   } catch (error) {
     console.error('Error fetching reference signature:', error);
