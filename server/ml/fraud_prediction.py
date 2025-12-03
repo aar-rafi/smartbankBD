@@ -352,8 +352,6 @@ def compute_features_for_cheque(cheque_data: Dict, profile: Optional[Dict],
 # RULE-BASED SCORING SYSTEM (Fallback / Enhancement)
 # ============================================================
 
-import random
-
 def compute_rule_based_score(features: Dict, profile: Dict = None) -> Tuple[float, List[Dict]]:
     """
     Rule-based fraud scoring system - LENIENT VERSION.
@@ -544,12 +542,7 @@ def compute_rule_based_score(features: Dict, profile: Dict = None) -> Tuple[floa
     # No points for weekend
     
     # Normalize to 0-100 (max theoretical score is ~100 now with higher amount points)
-    # Keep a minimum base score for realism
     normalized_score = min(100, (score / 100) * 100)
-    
-    # Ensure minimum base risk score (no transaction is 100% safe)
-    base_risk = random.uniform(20, 30)  # Minimum 20-30% risk always
-    normalized_score = max(base_risk, normalized_score)
     
     # Apply trust discounts (capped at 20% total reduction)
     trust_discount = 0
@@ -569,51 +562,27 @@ def compute_rule_based_score(features: Dict, profile: Dict = None) -> Tuple[floa
     trust_discount = min(trust_discount, 0.15)
     normalized_score *= (1 - trust_discount)
     
-    # Ensure minimum risk score after discounts
-    normalized_score = max(base_risk * 0.9, normalized_score)
+    # Ensure score stays within bounds
+    normalized_score = max(0, min(100, normalized_score))
     
     return normalized_score, triggered_rules
 
 
-def add_realistic_noise(score: float, noise_range: Tuple[float, float] = (-3, 5)) -> float:
+def normalize_score(score: float) -> float:
     """
-    Add realistic noise to make output look like ML model.
-    Target: ~25-40% risk (60-75% safe) for normal transactions.
+    Normalize and bound the fraud score.
+    Returns score between 0-100.
     """
-    # Small random noise
-    noise = random.uniform(noise_range[0], noise_range[1])
-    
-    # Add micro-variations for decimal places (looks more ML-like)
-    micro_noise = random.uniform(-1.5, 1.5)
-    
-    # Apply noise
-    noisy_score = score + noise + micro_noise
-    
-    # For mid-range scores, add small variation toward target
-    if 20 < score < 45:
-        # Small pull toward 30-38% range for normal transactions
-        target = random.uniform(28, 38)
-        pull_factor = 0.12  # 12% pull toward target
-        noisy_score = noisy_score * (1 - pull_factor) + target * pull_factor
-    elif score >= 45:
-        # For risky transactions, preserve the higher score
-        # Only add small noise, don't reduce much
-        noisy_score = score + random.uniform(-2, 4)
-    
-    # Ensure minimum risk (never show 100% safe)
-    min_risk = random.uniform(18, 28)
-    noisy_score = max(min_risk, noisy_score)
-    
     # Ensure within bounds
-    noisy_score = max(8, min(100, noisy_score))
+    normalized = max(0, min(100, score))
     
-    # Round to 1 decimal for realistic ML output
-    return round(noisy_score, 1)
+    # Round to 1 decimal
+    return round(normalized, 1)
 
 
 def compute_confidence_score(features: Dict, triggered_rules: List[Dict]) -> float:
     """
-    Compute a realistic-looking confidence score based on data availability.
+    Compute confidence score based on data availability.
     """
     base_confidence = 0.75
     
@@ -627,9 +596,7 @@ def compute_confidence_score(features: Dict, triggered_rules: List[Dict]) -> flo
     if len(triggered_rules) > 0:
         base_confidence += 0.02
     
-    # Add small noise
-    noise = random.uniform(-0.03, 0.05)
-    confidence = min(0.999, base_confidence + noise)
+    confidence = min(0.99, base_confidence)
     
     return round(confidence, 4)
 
@@ -706,35 +673,28 @@ def predict_fraud(cheque_data: Dict, signature_score: float = 85) -> Dict:
         # This ensures legitimate transactions aren't flagged
         blended_score = min(ml_fraud_score * 0.7, rule_score)  # Reduce ML score weight
         
-        # Add small noise for realistic variation
-        final_score = add_realistic_noise(blended_score, noise_range=(-10, 5))
+        # Normalize the blended score
+        final_score = normalize_score(blended_score)
         
     else:
-        # Rule-Based Fallback (looks like ML to frontend)
+        # Rule-Based Fallback
         rule_score, triggered_rules = compute_rule_based_score(features, profile)
         
-        # Add noise to make it look like ML output
-        final_score = add_realistic_noise(rule_score, noise_range=(-5, 8))
-    
-    # Ensure minimum risk score - no transaction is 100% safe
-    minimum_risk = random.uniform(20, 30)
-    final_score = max(minimum_risk, final_score)
+        # Normalize the rule-based score
+        final_score = normalize_score(rule_score)
     
     # Cap score for transactions with good indicators
-    # Target: ~30-40% risk (60-70% safe) for normal profiles
     if profile:
-        # Good signature = trust but not 100% safe
+        # Good signature = lower risk
         if features.get('signature_score', 0) >= 70:
             final_score = min(final_score, 45)  # Cap at 45% risk
             
-            # Good accounts get slightly better scores
+            # Good accounts get better scores
             if features.get('bounce_rate', 1) == 0 and features.get('account_age_days', 0) > 60:
-                # Target 28-38% range (62-72% safe)
-                target = random.uniform(28, 38)
-                final_score = max(target, min(final_score, 40))
+                final_score = min(final_score, 35)
     
-    # Final bounds check - always between 15-95%
-    final_score = max(15, min(95, final_score))
+    # Final bounds check
+    final_score = max(0, min(100, final_score))
     final_score = round(final_score, 1)
     
     # Compute realistic confidence
@@ -976,63 +936,7 @@ def predict_fraud(cheque_data: Dict, signature_score: float = 85) -> Dict:
     else:
         result['recommendation'] = 'APPROVE - Transaction appears normal. Safe to process.'
     
-    # Print detailed console output
-    print_fraud_result(cheque_data, result, features, profile)
-    
     return result
-
-
-def print_fraud_result(cheque_data: Dict, result: Dict, features: Dict, profile: Dict = None):
-    """
-    Print detailed fraud detection result to console in formatted JSON
-    """
-    # Build the detailed output structure
-    amount = float(cheque_data.get('amountDigits') or 0)
-    
-    console_output = {
-        "cheque_id": cheque_data.get('chequeNumber', 'N/A'),
-        "cheque_number": cheque_data.get('chequeNumber', 'N/A'),
-        "account_number": cheque_data.get('accountNumber', 'N/A'),
-        "amount": amount,
-        "payee_name": cheque_data.get('payeeName', 'Unknown'),
-        "anomaly_score": result.get('anomalyScore', 0),
-        "risk_level": result.get('riskLevel', 'unknown'),
-        "decision": result.get('decision', 'unknown'),
-        "confidence": result.get('confidence', 0),
-        "explanations": result.get('explanations', []),
-        "model_available": result.get('modelAvailable', False),
-        "profile_found": result.get('profileFound', False),
-    }
-    
-    # Add customer profile info if available
-    if profile:
-        console_output["customer_profile"] = {
-            "avg_transaction_amt": float(profile.get('avg_transaction_amt') or 0),
-            "max_transaction_amt": float(profile.get('max_transaction_amt') or 0),
-            "total_transactions": int(profile.get('total_transaction_count') or 0),
-            "bounce_rate": float(profile.get('bounce_rate') or 0),
-            "account_balance": float(profile.get('balance') or 0),
-        }
-    
-    # Add feature details
-    if features:
-        console_output["computed_features"] = {
-            "amount_zscore": round(features.get('amount_zscore', 0), 4),
-            "amount_to_balance_ratio": round(features.get('amount_to_balance_ratio', 0), 4),
-            "is_new_payee": bool(features.get('is_new_payee', 0)),
-            "txn_count_24h": int(features.get('txn_count_24h', 0)),
-            "is_dormant": bool(features.get('is_dormant', 0)),
-            "signature_score": round(features.get('signature_score', 0), 1),
-            "is_night_transaction": bool(features.get('is_night_transaction', 0)),
-            "is_weekend": bool(features.get('is_weekend', 0)),
-        }
-    
-    # Print formatted output
-    print("\n" + "="*70, file=sys.stderr)
-    print("🔍 FRAUD DETECTION ANALYSIS RESULT", file=sys.stderr)
-    print("="*70, file=sys.stderr)
-    print(json.dumps(console_output, indent=2, ensure_ascii=False), file=sys.stderr)
-    print("="*70 + "\n", file=sys.stderr)
 
 
 # ============================================================

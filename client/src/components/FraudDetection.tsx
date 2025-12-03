@@ -426,7 +426,6 @@ const FraudDetection: React.FC<FraudDetectionProps> = ({ result, isLoading }) =>
 
   // Main result display
   const { 
-    fraudScore, 
     riskLevel, 
     riskFactors, 
     safeFactors,
@@ -436,7 +435,14 @@ const FraudDetection: React.FC<FraudDetectionProps> = ({ result, isLoading }) =>
     modelAvailable,
     profileFound,
     confidence
-  } = result;  const riskCount = riskFactors?.length || 0;
+  } = result;
+  
+  // Ensure fraudScore is a number
+  const fraudScore = typeof result.fraudScore === 'number' 
+    ? result.fraudScore 
+    : parseFloat(String(result.fraudScore)) || 0;
+  
+  const riskCount = riskFactors?.length || 0;
   const safeCount = safeFactors?.length || 0;
 
   return (
@@ -497,7 +503,7 @@ const FraudDetection: React.FC<FraudDetectionProps> = ({ result, isLoading }) =>
             <div className="flex-1 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Risk Score</span>
-                <span className="font-semibold">{fraudScore?.toFixed(1) || 0}%</span>
+                <span className="font-semibold">{fraudScore.toFixed(1)}%</span>
               </div>
               <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div 

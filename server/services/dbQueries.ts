@@ -973,6 +973,12 @@ export const storeDeepVerification = async (chequeId: number, data: {
   aiReasoning?: string;
   behaviorFlags?: string[];
 }) => {
+  // Guard against null/undefined chequeId
+  if (!chequeId || chequeId <= 0) {
+    console.warn('storeDeepVerification called with invalid chequeId:', chequeId);
+    return { success: false, error: 'Invalid chequeId' };
+  }
+  
   try {
     await pool.query(
       `INSERT INTO deep_verifications (
