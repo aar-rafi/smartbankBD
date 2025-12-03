@@ -1,0 +1,88 @@
+================================================================================
+CHEQUEMATE DEPLOYMENT - COPY/PASTE COMMANDS
+================================================================================
+
+=== STEP 1: CREATE VM IN GCP CONSOLE (or use gcloud) ===
+
+# Option A: Use GCP Console
+# Go to: https://console.cloud.google.com/compute/instances
+# Create: Ubuntu 22.04, e2-medium, 30GB, Allow HTTP+HTTPS
+
+# Option B: Use gcloud CLI
+gcloud compute instances create chequemate --zone=us-central1-a --machine-type=e2-medium --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud --boot-disk-size=30GB --tags=http-server,https-server
+
+# Get the IP
+gcloud compute instances describe chequemate --zone=us-central1-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+
+
+=== STEP 2: ADD DNS RECORD ===
+
+# In your DNS provider for twiggle.tech:
+# Type: A
+# Name: chequemate  
+# Value: [YOUR_VM_IP]
+
+
+=== STEP 3: UPLOAD CODE ===
+
+# Set your VM IP first!
+VM_IP="PASTE_YOUR_IP_HERE"
+
+# Upload using rsync (faster)
+cd /home/torr20/Documents/chequemate-ai
+rsync -avz --progress --exclude 'node_modules' --exclude '.git' --exclude 'venv' --exclude '__pycache__' -e "ssh -o StrictHostKeyChecking=no" . ubuntu@$VM_IP:~/chequemate-ai/
+
+# OR use gcloud scp
+gcloud compute scp --recurse --zone=us-central1-a --compress /home/torr20/Documents/chequemate-ai chequemate:~/
+
+
+=== STEP 4: SSH AND RUN SETUP ===
+
+# SSH into VM
+ssh ubuntu@$VM_IP
+# OR: gcloud compute ssh chequemate --zone=us-central1-a
+
+# Once connected, run these commands:
+cd ~/chequemate-ai/deploy
+chmod +x setup-server.sh
+sudo ./setup-server.sh
+
+# Then start services:
+cd ~/chequemate-ai
+chmod +x start-prod.sh
+./start-prod.sh
+
+
+=== STEP 5: GET SSL CERTIFICATE ===
+
+# Still on the VM:
+sudo certbot --nginx -d chequemate.twiggle.tech --non-interactive --agree-tos -m your@email.com
+
+
+=== DONE! ACCESS YOUR APP ===
+
+# IBBL Bank:   https://chequemate.twiggle.tech
+# Sonali Bank: https://chequemate.twiggle.tech:5001
+# API:         https://chequemate.twiggle.tech/api
+
+
+=== TROUBLESHOOTING ===
+
+# Check all services
+pm2 status
+
+# View logs
+pm2 logs
+
+# Restart everything
+pm2 restart all
+
+# Check nginx
+sudo nginx -t
+sudo systemctl restart nginx
+
+# Database check
+sudo -u postgres psql -d chequemate -c "\dt"
+
+
+================================================================================

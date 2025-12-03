@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "============================================"
-echo "  ChequeMate AI - Hackathon Demo Launcher"
+echo "  SmartBank BD - Hackathon Demo Launcher"
 echo "============================================"
 echo ""
 echo "Working directory: $SCRIPT_DIR"
