@@ -2,6 +2,7 @@
 -- PostgreSQL database dump
 --
 
+\restrict SvayHbB0f9AwJUnbm8L6zdNS7V5gqzKHSC8ZLattQSg6UPe1YuTGjljMSYLd1Ez
 
 -- Dumped from database version 18.0
 -- Dumped by pg_dump version 18.0
@@ -9,6 +10,7 @@
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -357,7 +359,7 @@ CREATE TABLE public.cheques (
     micr_code character varying(50),
     cheque_image_path character varying(255),
     signature_image_path character varying(255),
-    status character varying(15) DEFAULT 'received'::character varying,
+    status character varying(20) DEFAULT 'received'::character varying,
     created_at timestamp with time zone DEFAULT now()
 );
 
@@ -754,7 +756,7 @@ CREATE VIEW public.v_review_queue AS
 ALTER VIEW public.v_review_queue OWNER TO chequemate_user;
 
 --
--- Name: v_today_stats; Type: VIEW; Schema: public; Owner: chequemate_user
+-- Name: v_today_stats; Type: VIEW; Schema: public; Owner: postgres
 --
 
 CREATE VIEW public.v_today_stats AS
@@ -763,12 +765,13 @@ CREATE VIEW public.v_today_stats AS
     count(*) FILTER (WHERE ((status)::text = 'approved'::text)) AS approved,
     count(*) FILTER (WHERE ((status)::text = 'rejected'::text)) AS rejected,
     count(*) FILTER (WHERE ((status)::text = 'flagged'::text)) AS flagged,
+    count(*) FILTER (WHERE ((status)::text = 'validation_failed'::text)) AS validation_failed,
     sum(amount) AS total_amount
    FROM public.cheques
   WHERE ((created_at)::date = CURRENT_DATE);
 
 
-ALTER VIEW public.v_today_stats OWNER TO chequemate_user;
+ALTER VIEW public.v_today_stats OWNER TO postgres;
 
 --
 -- Name: account_signatures signature_id; Type: DEFAULT; Schema: public; Owner: chequemate_user
@@ -915,6 +918,9 @@ COPY public.accounts (account_id, bank_id, account_number, holder_name, account_
 12	4	20503040200090712	KARIM AHMED	savings	250000.00	active	2025-12-03 00:50:09.67972+06
 13	5	30100200300400	MOHAMMAD SHAHIDULLAH	savings	100000.00	active	2025-12-03 00:50:09.68146+06
 14	5	30100200300401	FATIMA BEGUM	current	350000.00	active	2025-12-03 00:50:09.682684+06
+15	4	222-20822-6	Unknown Account (222-20822-6)	savings	0.00	active	2025-12-03 04:53:44.244701+06
+16	5	4435403000037	Unknown Account (4435403000037)	savings	0.00	active	2025-12-03 04:58:58.984817+06
+17	4		Unknown Account ()	savings	0.00	active	2025-12-03 05:47:03.93667+06
 \.
 
 
@@ -936,7 +942,9 @@ COPY public.banks (bank_id, bank_code, bank_name, bank_type, routing_number) FRO
 --
 
 COPY public.bb_clearings (clearing_id, cheque_id, clearing_reference, from_bank_id, to_bank_id, received_at, forwarded_at, blacklist_hit, blacklist_match_id, duplicate_hit, duplicate_of_cheque, stop_payment_hit, status, response_status, response_at) FROM stdin;
-19	30	CLR-1764712717317-30	5	4	2025-12-03 03:58:37.317295+06	2025-12-03 03:58:39.330947+06	f	\N	f	\N	f	responded	flagged	2025-12-03 03:59:02.243254+06
+35	46	CLR-1764728944481-46	5	4	2025-12-03 08:29:04.481502+06	2025-12-03 08:29:06.490225+06	f	\N	f	\N	f	responded	approved	2025-12-03 08:36:15.471475+06
+37	51	CLR-1764730576187-51	4	5	2025-12-03 08:56:16.188059+06	2025-12-03 08:56:18.196831+06	f	\N	f	\N	f	responded	rejected	2025-12-03 08:57:27.818895+06
+36	48	CLR-1764730065688-48	4	5	2025-12-03 08:47:45.68838+06	2025-12-03 08:47:47.698706+06	f	\N	f	\N	f	responded	rejected	2025-12-03 08:58:48.285502+06
 \.
 
 
@@ -1085,11 +1093,14 @@ COPY public.cheques (cheque_id, cheque_number, leaf_id, drawer_account_id, drawe
 3	300001	21	3	2	5	2	Eve Hossain	200000.00	Two Lakh Taka Only	2024-02-10	300001:020234:200100001	/cheques/cheque_300001.jpg	/cheques/sig_300001.jpg	settled	2025-12-02 21:40:00.250162+06
 4	400001	31	4	2	2	1	Bob Chowdhury	300000.00	Three Lakh Taka Only	2024-08-20	400001:020234:200100002	/cheques/cheque_400001.jpg	/cheques/sig_400001.jpg	bounced	2025-12-02 21:40:00.250162+06
 5	500051	41	5	2	1	1	Alice Rahman	150000.00	One Lakh Fifty Thousand Taka Only	2024-06-15	500051:020234:200100003	/cheques/cheque_500051.jpg	/cheques/sig_500051.jpg	settled	2025-12-02 21:40:00.250162+06
-7	700001	61	8	5	1	1	Alice Rahman	15000.00	Fifteen Thousand Taka Only	2025-07-10	700001:200270:4404001000379	/cheques/cheque_700001.jpg	/cheques/sig_700001.jpg	validated	2025-12-02 21:40:00.250162+06
 8	200052	12	2	1	5	2	Eve Hossain	120000.00	One Lakh Twenty Thousand Taka Only	2024-10-05	200052:010123:100100002	/cheques/cheque_200052.jpg	/cheques/sig_200052.jpg	flagged	2025-12-02 21:40:00.250162+06
 10	400002	32	4	2	3	2	Carol Ahmed	80000.00	Eighty Thousand Taka Only	2024-09-10	400002:020234:200100002	/cheques/cheque_400002.jpg	/cheques/sig_400002_fake.jpg	rejected	2025-12-02 21:40:00.250162+06
-30	3566753	72	7	4	13	5	Mohammad Shahidullah	105000.00	One lac five Thousand taka only	2025-12-02	3566753 125155801 3040200090711 10	/home/torr20/Documents/chequemate-ai/server/temp/upload_1764712662680.png	/home/torr20/Documents/chequemate-ai/server/temp/signature_1764712662680.png	flagged	2025-12-03 03:57:55.386675+06
+46	3566753	72	7	4	13	5	Mohammad Shahidullah	105000.00	One lac five Thousand taka only	2025-12-03	3566753 125155801 3040200090711 10	/home/torr20/Documents/chequemate-ai/server/temp/upload_1764728924177.png	/home/torr20/Documents/chequemate-ai/server/temp/signature_1764728924177.png	approved	2025-12-03 08:28:53.619011+06
+47	1118606	\N	16	5	\N	\N	ঢাকা আইনজীবী সমিতি	617025875.00	ছয় কোটি সত্তর লক্ষ পঁচিশ হাজার আটশত পঁচাত্তর মাত্র ।	2025-12-03	1118606  200276618  4435403000037	\N	\N	received	2025-12-03 08:47:01.648986+06
 9	300006	26	3	2	4	2	David Khan	50000.00	Fifty Thousand Taka Only	2025-12-01	300006:020234:200100001	/cheques/cheque_300006.jpg	/cheques/sig_300006.jpg	validated	2025-12-02 21:40:00.250162+06
+51	7876503	\N	8	5	\N	4	4405002000137	100000.00	One lac Taka only	2025-10-12	 7876503 200270522 4404001000379 10	/home/torr20/Documents/chequemate-ai/server/temp/upload_1764730534327.png	/home/torr20/Documents/chequemate-ai/server/temp/signature_1764730534327.png	rejected	2025-12-03 08:55:50.002856+06
+48	1118606	\N	16	5	\N	4	ঢাকা আইনজীবী সমিতি	617025875.00	ছয় কোটি সত্তর লক্ষ পঁচিশ হাজার আটশত পঁচাত্তর মাত্র ।	2022-02-20	1118606  200276618  4435403000037	/home/torr20/Documents/chequemate-ai/server/temp/upload_1764729982399.png	/home/torr20/Documents/chequemate-ai/server/temp/signature_1764729982399.png	rejected	2025-12-03 08:47:01.699348+06
+39	7876503	\N	8	5	\N	\N	Self	5400.00	Five thousand four hundred Taka	2025-12-03	 7876503  200270522  4404001000379  10	\N	\N	received	2025-12-03 06:23:34.420729+06
 \.
 
 
@@ -1113,7 +1124,9 @@ COPY public.customer_profiles (profile_id, account_id, national_id, phone, kyc_s
 --
 
 COPY public.deep_verifications (verification_id, cheque_id, account_active, sufficient_funds, cheque_leaf_valid, matched_signature_id, signature_score, signature_match, behavior_score, amount_deviation, is_unusual_amount, is_new_payee, is_unusual_day, is_unusual_time, is_high_velocity, is_dormant_account, velocity_24h, behavior_flags, fraud_risk_score, risk_level, ai_decision, ai_confidence, ai_reasoning, final_decision, decision_by, decision_notes, verified_at) FROM stdin;
-29	30	\N	\N	\N	\N	19.75	no_match	\N	\N	\N	\N	\N	\N	\N	\N	\N	{signature-verify}	15.00	low	flag_for_review	19.75	Account Verification: Account verified and active; Cheque Leaf Verification: Cheque leaf is valid and unused; Funds Availability: Sufficient funds available; Date Validity Check: Date is within valid range; Signature Verification (AI): Signature MISMATCH (19.8% confidence) - POTENTIAL FRAUD; AI-Generated Detection (SynthID): No AI-generated artifacts detected; Fraud Risk Analysis: Transaction within normal patterns	\N	\N	\N	2025-12-03 03:57:55.481409+06
+119	46	\N	\N	\N	\N	99.56	match	\N	\N	\N	\N	\N	\N	\N	\N	\N	{}	9.50	low	approve	99.56	Account Verification: Account verified and active; Cheque Leaf Verification: Cheque leaf is valid and unused; Funds Availability: Sufficient funds available; Date Validity Check: Date is within valid range; Signature Verification (AI): Signature MATCH confirmed (99.6% confidence); AI-Generated Detection (SynthID): No AI-generated artifacts detected; Fraud Risk Analysis: APPROVE - Transaction appears normal. Safe to process.	\N	\N	\N	2025-12-03 08:29:14.903733+06
+124	48	\N	\N	\N	\N	\N	no_match	\N	\N	\N	\N	\N	\N	\N	\N	\N	{cheque-leaf,funds-check}	18.00	low	flag_for_review	85.00	Account Verification: Account verified and active; Cheque Leaf Verification: Cheque is invalid - REJECT; Funds Availability: INSUFFICIENT FUNDS; Date Validity Check: Date is within valid range; Signature Verification (AI): No reference signature on file - MANUAL VERIFICATION REQUIRED; AI-Generated Detection (SynthID): No AI-generated artifacts detected; Fraud Risk Analysis: APPROVE - Transaction appears normal. Safe to process.	\N	\N	\N	2025-12-03 08:47:01.702599+06
+129	51	\N	\N	\N	\N	78.83	match	\N	\N	\N	\N	\N	\N	\N	\N	\N	{}	45.00	medium	approve	78.83	Account Verification: Account verified and active; Cheque Leaf Verification: Cheque leaf is valid and unused; Funds Availability: Sufficient funds available; Date Validity Check: Date is within valid range; Signature Verification (AI): Signature MATCH confirmed (78.8% confidence); AI-Generated Detection (SynthID): No AI-generated artifacts detected; Fraud Risk Analysis: CAUTION - Medium risk. Additional verification recommended.	\N	\N	\N	2025-12-03 08:55:50.005572+06
 \.
 
 
@@ -1122,7 +1135,6 @@ COPY public.deep_verifications (verification_id, cheque_id, account_active, suff
 --
 
 COPY public.fraud_flags (flag_id, cheque_id, reason, priority, status, review_notes, reviewed_at, created_at) FROM stdin;
-5	30	Requires manual review	medium	pending	\N	\N	2025-12-03 03:59:02.24543+06
 \.
 
 
@@ -1131,7 +1143,20 @@ COPY public.fraud_flags (flag_id, cheque_id, reason, priority, status, review_no
 --
 
 COPY public.initial_validations (validation_id, cheque_id, all_fields_present, date_valid, micr_readable, ocr_amount, ocr_confidence, amount_match, validation_status, failure_reason, validated_at) FROM stdin;
-47	30	t	t	t	105000.00	\N	f	passed	\N	2025-12-03 03:57:55.388525+06
+63	39	t	t	t	5400.00	\N	f	passed	\N	2025-12-03 06:23:34.423166+06
+66	39	t	t	t	100000.00	\N	f	passed	\N	2025-12-03 06:55:04.08568+06
+67	39	t	t	t	100000.00	\N	f	passed	\N	2025-12-03 06:57:11.984777+06
+71	39	t	t	t	100000.00	\N	f	passed	\N	2025-12-03 07:12:52.698581+06
+73	39	t	t	t	100000.00	\N	f	passed	\N	2025-12-03 07:44:43.008672+06
+75	46	t	t	t	105000.00	\N	f	passed	\N	2025-12-03 08:28:53.620845+06
+76	46	t	t	t	105000.00	\N	f	passed	\N	2025-12-03 08:41:24.957479+06
+77	46	t	t	t	105000.00	\N	f	passed	\N	2025-12-03 08:43:57.804687+06
+78	47	t	t	t	617025875.00	\N	f	passed	\N	2025-12-03 08:47:01.65078+06
+79	48	t	t	t	617025875.00	85.00	t	passed	\N	2025-12-03 08:47:01.701304+06
+80	46	t	t	t	105000.00	\N	f	passed	\N	2025-12-03 08:52:48.393673+06
+81	39	t	t	t	100000.00	\N	f	passed	\N	2025-12-03 08:53:56.073884+06
+85	39	t	t	t	100000.00	\N	f	passed	\N	2025-12-03 08:55:49.936402+06
+86	51	t	t	t	100000.00	5.00	t	passed	\N	2025-12-03 08:55:50.004361+06
 \.
 
 
@@ -1164,7 +1189,6 @@ COPY public.settlements (settlement_id, cheque_id, from_account_id, debit_amount
 3	3	3	200000.00	2024-02-10 13:00:00+06	5	200000.00	2024-02-10 13:00:00+06	completed	2024-02-10 13:00:00+06
 4	4	4	300000.00	\N	2	300000.00	\N	failed	\N
 5	5	5	150000.00	2024-06-15 15:00:00+06	1	150000.00	2024-06-15 15:00:00+06	completed	2024-06-15 15:00:00+06
-7	7	8	15000.00	\N	1	15000.00	\N	pending	\N
 \.
 
 
@@ -1207,7 +1231,7 @@ SELECT pg_catalog.setval('public.account_signatures_signature_id_seq', 10, true)
 -- Name: accounts_account_id_seq; Type: SEQUENCE SET; Schema: public; Owner: chequemate_user
 --
 
-SELECT pg_catalog.setval('public.accounts_account_id_seq', 14, true);
+SELECT pg_catalog.setval('public.accounts_account_id_seq', 17, true);
 
 
 --
@@ -1221,7 +1245,7 @@ SELECT pg_catalog.setval('public.banks_bank_id_seq', 9, true);
 -- Name: bb_clearings_clearing_id_seq; Type: SEQUENCE SET; Schema: public; Owner: chequemate_user
 --
 
-SELECT pg_catalog.setval('public.bb_clearings_clearing_id_seq', 19, true);
+SELECT pg_catalog.setval('public.bb_clearings_clearing_id_seq', 37, true);
 
 
 --
@@ -1256,7 +1280,7 @@ SELECT pg_catalog.setval('public.cheque_leaves_leaf_id_seq', 83, true);
 -- Name: cheques_cheque_id_seq; Type: SEQUENCE SET; Schema: public; Owner: chequemate_user
 --
 
-SELECT pg_catalog.setval('public.cheques_cheque_id_seq', 30, true);
+SELECT pg_catalog.setval('public.cheques_cheque_id_seq', 51, true);
 
 
 --
@@ -1270,21 +1294,21 @@ SELECT pg_catalog.setval('public.customer_profiles_profile_id_seq', 8, true);
 -- Name: deep_verifications_verification_id_seq; Type: SEQUENCE SET; Schema: public; Owner: chequemate_user
 --
 
-SELECT pg_catalog.setval('public.deep_verifications_verification_id_seq', 30, true);
+SELECT pg_catalog.setval('public.deep_verifications_verification_id_seq', 130, true);
 
 
 --
 -- Name: fraud_flags_flag_id_seq; Type: SEQUENCE SET; Schema: public; Owner: chequemate_user
 --
 
-SELECT pg_catalog.setval('public.fraud_flags_flag_id_seq', 5, true);
+SELECT pg_catalog.setval('public.fraud_flags_flag_id_seq', 8, true);
 
 
 --
 -- Name: initial_validations_validation_id_seq; Type: SEQUENCE SET; Schema: public; Owner: chequemate_user
 --
 
-SELECT pg_catalog.setval('public.initial_validations_validation_id_seq', 47, true);
+SELECT pg_catalog.setval('public.initial_validations_validation_id_seq', 86, true);
 
 
 --
@@ -1879,5 +1903,4 @@ ALTER TABLE ONLY public.transactions
 -- PostgreSQL database dump complete
 --
 
-\unrestrict eDpnGfHQUPdRvub2c5wOXH0nnePda05MW8EbbWPkh2LeKiCDW8CML5iVoSKhl8n
-
+\unrestrict SvayHbB0f9AwJUnbm8L6zdNS7V5gqzKHSC8ZLattQSg6UPe1YuTGjljMSYLd1Ez
