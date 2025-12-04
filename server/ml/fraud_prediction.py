@@ -349,7 +349,7 @@ def compute_features_for_cheque(cheque_data: Dict, profile: Optional[Dict],
 
 
 # ============================================================
-# RULE-BASED SCORING SYSTEM (Fallback / Enhancement)
+# RULE-BASED SCORING SYSTEM ( Enhancement)
 # ============================================================
 
 def compute_rule_based_score(features: Dict, profile: Dict = None) -> Tuple[float, List[Dict]]:

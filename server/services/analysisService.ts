@@ -2,11 +2,10 @@ import { GoogleGenAI, Schema, Type } from "@google/genai";
 import { ChequeData } from "../../shared/types.js";
 import fs from "fs/promises";
 import path from "path";
-import { exec } from "child_process";
-import util from "util";
 import { BypassConfig, isDemoCheque } from "../config/bypass.js";
 
-const execPromise = util.promisify(exec);
+// ML Service URL for signature extraction
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://localhost:5005";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const GEMINI_MODEL = "gemini-2.5-pro";
@@ -38,6 +37,42 @@ const aiDetectionSchema: Schema = {
     required: ["isAiGenerated", "synthIdConfidence"],
 };
 
+// Helper function to call ML service for signature extraction
+interface MLExtractResponse {
+    success: boolean;
+    error?: string;
+    result?: {
+        bbox: number[];
+        normalized_bbox: number[];
+        image_dim: number[];
+        extracted_signature: string;
+    };
+}
+
+async function extractSignatureFromML(base64Image: string): Promise<{
+    bbox: number[];
+    normalized_bbox: number[];
+    image_dim: number[];
+    extracted_signature: string;
+}> {
+    const response = await fetch(`${ML_SERVICE_URL}/extract-signature`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image })
+    });
+    
+    if (!response.ok) {
+        throw new Error(`ML service error: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json() as MLExtractResponse;
+    if (!data.success || !data.result) {
+        throw new Error(data.error || 'Failed to extract signature');
+    }
+    
+    return data.result;
+}
+
 export const analyzeCheque = async (base64Image: string, mimeType: string): Promise<ChequeData> => {
     const timestamp = Date.now();
     const tempDir = path.resolve("temp");
@@ -50,45 +85,34 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
         const buffer = Buffer.from(base64Data, "base64");
         await fs.writeFile(inputPath, buffer);
 
-        // 2. Run Python Script for signature extraction
-        const scriptPath = path.resolve("ml/signature_extract.py");
-        // Use the configured python executable or fallback to venv
-        const pythonPath = process.env.PYTHON_PATH || path.resolve("database/venv/bin/python");
-        const command = `"${pythonPath}" "${scriptPath}" "${inputPath}" "${outputPath}" --json`;
-
-        console.log("Running Python script:", command);
-        const { stdout, stderr } = await execPromise(command);
-        if (stderr) console.error("Python stderr:", stderr);
-
-        let pythonResult;
+        // 2. Call ML Service for signature extraction via HTTP
+        console.log("Calling ML service for signature extraction...");
+        let mlResult;
         try {
-            pythonResult = JSON.parse(stdout);
+            mlResult = await extractSignatureFromML(base64Data);
+            console.log("Signature extraction successful");
         } catch (e) {
-            console.error("Failed to parse Python output:", e);
-            throw new Error("Failed to parse signature extraction results");
+            console.error("Failed to extract signature via ML service:", e);
+            throw new Error("Failed to extract signature from cheque image");
         }
 
-        // Normalize BBox
-        const [h, w] = pythonResult.image_dim;
-        const [ymin, xmin, ymax, xmax] = pythonResult.bbox;
-        const normalize = (val: number, max: number) => Math.round((val / max) * 1000);
-        const normalizedBox = [
-            normalize(ymin, h),
-            normalize(xmin, w),
-            normalize(ymax, h),
-            normalize(xmax, w)
-        ];
+        // Normalize BBox - already normalized from ML service
+        const normalizedBox = mlResult.normalized_bbox;
+        const [h, w] = mlResult.image_dim;
 
-        // Read extracted signature image
-        let extractedSignatureImage = null;
-        let signatureDetectedByPython = false;
-        try {
-            const sigBuffer = await fs.readFile(pythonResult.output_file);
-            extractedSignatureImage = sigBuffer.toString("base64");
-            signatureDetectedByPython = true;
-            console.log("Signature extracted by Python script successfully");
-        } catch (e) {
-            console.warn("Could not read extracted signature:", e);
+        // Get extracted signature image from ML service response
+        let extractedSignatureImage: string | null = mlResult.extracted_signature || null;
+        let signatureDetectedByML = !!extractedSignatureImage;
+        
+        // Also save the extracted signature to disk for later verification
+        if (extractedSignatureImage) {
+            try {
+                const sigBuffer = Buffer.from(extractedSignatureImage, "base64");
+                await fs.writeFile(outputPath, sigBuffer);
+                console.log("Signature saved to:", outputPath);
+            } catch (e) {
+                console.warn("Could not save extracted signature to disk:", e);
+            }
         }
 
         // 3. Run Gemini Analysis
@@ -160,15 +184,15 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
             }
 
             // Combine and return
-            // Use Python extraction result for hasSignature if it found one
+            // Use ML extraction result for hasSignature if it found one
             const mergedData: ChequeData = {
                 ...extractionData,
-                hasSignature: signatureDetectedByPython || extractionData.hasSignature,
+                hasSignature: signatureDetectedByML || extractionData.hasSignature,
                 signatureBox: normalizedBox,
                 extractedSignatureImage,
                 // Store paths for later verification at drawer bank
                 chequeImagePath: inputPath,
-                signatureImagePath: pythonResult.output_file,
+                signatureImagePath: outputPath,
                 ...aiData
             };
 
@@ -183,15 +207,15 @@ export const analyzeCheque = async (base64Image: string, mimeType: string): Prom
             const extractionText = extractionResponse?.text;
             const extractionData = extractionText ? JSON.parse(extractionText) : {};
 
-            // Use Python extraction result for hasSignature if it found one
+            // Use ML extraction result for hasSignature if it found one
             const mergedData: ChequeData = {
                 ...extractionData,
-                hasSignature: signatureDetectedByPython || extractionData.hasSignature,
+                hasSignature: signatureDetectedByML || extractionData.hasSignature,
                 signatureBox: normalizedBox,
                 extractedSignatureImage,
                 // Store paths for later verification at drawer bank
                 chequeImagePath: inputPath,
-                signatureImagePath: pythonResult.output_file,
+                signatureImagePath: outputPath,
                 isAiGenerated: false,
                 synthIdConfidence: 0
             };

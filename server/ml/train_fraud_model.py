@@ -386,11 +386,6 @@ def compute_feature_contributions(model: IsolationForest, X: np.ndarray,
     return importance_df
 
 
-# ============================================================
-# MODEL TRAINING - ISOLATION FOREST (Unsupervised)
-# ============================================================
-
-# Feature columns for model (20 features)
 FEATURE_COLUMNS = [
     # Amount features (4)
     'amount_zscore', 'amount_to_max_ratio', 'amount_to_balance_ratio', 'is_above_max',
