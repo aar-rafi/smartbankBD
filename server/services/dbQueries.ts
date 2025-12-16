@@ -574,7 +574,12 @@ export const createCheque = async (data: {
   validationFailed?: boolean;
   failureReasons?: string;
   analysisResults?: any;
+  synthIdConfidence?: number | null;
+  isAiGenerated?: boolean;
 }) => {
+  // Extract SynthID values from analysisResults if not directly provided
+  const synthIdConfidence = data.synthIdConfidence ?? data.analysisResults?.confidence ?? data.analysisResults?.synthIdConfidence ?? null;
+  const isAiGenerated = data.isAiGenerated ?? data.analysisResults?.isAiGenerated ?? false;
   try {
     // Extract numeric cheque number (remove prefixes like "MCG")
     const numericChequeNumber = extractNumericChequeNumber(data.chequeNumber);
@@ -669,9 +674,11 @@ export const createCheque = async (data: {
         `UPDATE cheques SET 
           status = $1,
           cheque_image_path = COALESCE($2, cheque_image_path),
-          signature_image_path = COALESCE($3, signature_image_path)
-         WHERE cheque_id = $4`,
-        [chequeStatus, data.chequeImagePath, data.signatureImagePath, chequeId]
+          signature_image_path = COALESCE($3, signature_image_path),
+          synth_id_confidence = COALESCE($4, synth_id_confidence),
+          is_ai_generated = COALESCE($5, is_ai_generated)
+         WHERE cheque_id = $6`,
+        [chequeStatus, data.chequeImagePath, data.signatureImagePath, synthIdConfidence, isAiGenerated, chequeId]
       );
       return chequeId;
     }
@@ -697,9 +704,10 @@ export const createCheque = async (data: {
           presenting_bank_id,
           payee_name, amount, amount_in_words, issue_date, micr_code, 
           cheque_image_path, signature_image_path,
+          synth_id_confidence, is_ai_generated,
           status
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING cheque_id`,
       [
         numericChequeNumber,
@@ -713,6 +721,8 @@ export const createCheque = async (data: {
         data.micrCode || null,
         data.chequeImagePath || null,
         data.signatureImagePath || null,
+        synthIdConfidence,
+        isAiGenerated,
         chequeStatus
       ]
     );

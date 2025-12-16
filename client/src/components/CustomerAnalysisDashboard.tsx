@@ -24,7 +24,14 @@ import {
 } from "lucide-react";
 import CustomerProfileTable from './CustomerProfileTable';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Use same API URL pattern as other services
+const getApiUrl = () => {
+  if (window.location.hostname.includes('smartbankbd.twiggle.tech')) {
+    return ''; // Use relative path, Vite proxy will handle it
+  }
+  return 'http://localhost:3001';
+};
+const API_URL = getApiUrl();
 
 interface CustomerSummary {
     accountId: number;
@@ -156,7 +163,7 @@ const CustomerAnalysisDashboard: React.FC<CustomerAnalysisDashboardProps> = ({ c
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card>
                     <CardContent className="pt-6">
                         <div className="flex items-center justify-between">
@@ -206,16 +213,16 @@ const CustomerAnalysisDashboard: React.FC<CustomerAnalysisDashboardProps> = ({ c
             {/* Search and Filters */}
             <Card>
                 <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                         <CardTitle>Customer Profiles</CardTitle>
-                        <div className="flex items-center gap-2">
-                            <div className="relative">
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <div className="relative flex-1 sm:flex-none">
                                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     placeholder="Search by name or account..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="pl-10 w-64"
+                                    className="pl-10 w-full sm:w-64"
                                 />
                             </div>
                         </div>
@@ -232,7 +239,7 @@ const CustomerAnalysisDashboard: React.FC<CustomerAnalysisDashboardProps> = ({ c
                             No customers found
                         </div>
                     ) : (
-                        <div className="rounded-md border">
+                        <div className="rounded-md border overflow-x-auto">
                             <Table>
                                 <TableHeader>
                                     <TableRow>

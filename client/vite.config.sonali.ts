@@ -5,10 +5,12 @@ import react from '@vitejs/plugin-react';
 // Sonali Bank Instance - Port 5001
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
+
   return {
     server: {
       port: 5001,
       host: '0.0.0.0',
+      allowedHosts: true,
       proxy: {
         '/api': {
           target: 'http://localhost:3001',

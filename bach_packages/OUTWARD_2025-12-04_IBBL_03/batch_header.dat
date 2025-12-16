@@ -1,0 +1,12 @@
+BACH OUTWARD CLEARING BATCH
+========================================
+Batch ID: 03
+Created: 2025-12-04T08:45:20.640Z
+Presenting Bank: IBBL
+Destination Bank: SONALI
+Total Items: 1
+Total Amount: 100000.00 BDT
+========================================
+Format Version: BACH-2.1
+Encryption: AES-256-CBC
+Checksum: a2f7d31b270ffd737d4bbdea95d5c81a

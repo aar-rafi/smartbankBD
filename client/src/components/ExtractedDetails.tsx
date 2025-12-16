@@ -113,7 +113,19 @@ const AuthenticityBadge: React.FC<{ isAiGenerated: boolean; confidence: number |
       </div>
     );
   }
-  return null;
+  // Show success message when no AI generation detected
+  return (
+    <div className="bg-green-50 text-green-900 border border-green-200 p-4 rounded-xl flex items-start gap-3 mb-6">
+      <span className="material-symbols-outlined text-3xl text-green-600 mt-1">verified</span>
+      <div>
+        <p className="font-bold text-base text-green-800">Digital Authenticity Verified</p>
+        <p className="text-sm text-green-700 mt-1">
+          SynthID scan complete - No AI-generated artifacts detected.
+          {confidence !== null && confidence !== undefined ? ` Confidence: ${(100 - confidence).toFixed(1)}% authentic` : ' Image appears genuine.'}
+        </p>
+      </div>
+    </div>
+  );
 };
 
 const ExtractedDetails: React.FC<ExtractedDetailsProps> = ({ data, originalImage, onReset }) => {

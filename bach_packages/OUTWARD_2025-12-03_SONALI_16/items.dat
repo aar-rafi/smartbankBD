@@ -1,0 +1,9 @@
+# BACH Items Data File
+# Format: CSV with MICR encoding
+
+ITEM_ID,CHEQUE_NO,AMOUNT,PAYEE,DRAWER_ACCOUNT,MICR_LINE,STATUS
+07023,7023,2300.00,"নিজ",222-20822-6,"⑆7023⑆ ⑈IBBL⑈ 222-20822-6⑇",PENDING
+
+# End of items
+# Total: 1 item(s)
+# Checksum: b920e14c1afe94a68e5e8a865cbcbb98

@@ -35,4 +35,5 @@ start_mushfiq.sh
 .env.*
 *.key
 *.pem
-*.secret
+*.secretbach_packages
+server/temp/

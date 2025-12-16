@@ -177,6 +177,10 @@ CREATE TABLE cheques (
     cheque_image_path       VARCHAR(255),
     signature_image_path    VARCHAR(255),
     
+    -- AI Detection Results (SynthID)
+    synth_id_confidence     NUMERIC(5,2),  -- SynthID confidence score (0-100)
+    is_ai_generated         BOOLEAN DEFAULT FALSE,  -- Whether image is AI-generated
+    
     -- Status tracking
     status                  VARCHAR(20) DEFAULT 'received',
     -- received → validated/validation_failed → clearing → approved/rejected/flagged → settled/bounced

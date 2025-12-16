@@ -1,4 +1,5 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Use relative /api path - Vite proxy handles forwarding to backend
+const API_URL = '';
 
 export interface DashboardStats {
     total: number;
@@ -156,13 +157,16 @@ export const createCheque = async (data: {
 };
 
 // Send cheque to BACH
-export const sendToBACH = async (chequeId: number): Promise<{ clearingRef: string }> => {
+export const sendToBACH = async (chequeId: number): Promise<{ clearingRef: string; bachPackage?: { files: string[] } }> => {
     const res = await fetch(`${API_URL}/api/cheques/${chequeId}/send-to-bach`, {
         method: 'POST'
     });
     if (!res.ok) throw new Error('Failed to send to BACH');
     const json = await res.json();
-    return { clearingRef: json.clearingRef };
+    return { 
+        clearingRef: json.clearingRef,
+        bachPackage: json.bachPackage 
+    };
 };
 
 // Simulate BACH forwarding (in real world this would be automatic)

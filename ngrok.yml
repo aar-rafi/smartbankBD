@@ -1,0 +1,19 @@
+# ngrok configuration for SmartBankBD
+# Usage: ngrok start --all --config ngrok.yml
+
+version: "2"
+authtoken: 329WmhgQmBJEyJ0tQhWEdQkNc8m_2MVCEz3A3rpSLfQYCbpqG
+
+tunnels:
+  ibbl:
+    addr: 5000
+    proto: http
+    # hostname: smartbankbd.twiggle.tech
+  
+  sonali:
+    addr: 5001
+    proto: http
+  
+  api:
+    addr: 3001
+    proto: http

@@ -633,7 +633,7 @@ const FraudDetection: React.FC<FraudDetectionProps> = ({ result, isLoading }) =>
       </Card>
 
       {/* Customer Statistics Card - Only show if profile found */}
-      {profileFound && customerStatistics && computedFeatures && (
+      {/* {profileFound && customerStatistics && computedFeatures && (
         <Card>
           <CardHeader className="bg-muted/50 border-b pb-3">
             <div className="flex items-center gap-2">
@@ -648,7 +648,7 @@ const FraudDetection: React.FC<FraudDetectionProps> = ({ result, isLoading }) =>
             />
           </CardContent>
         </Card>
-      )}
+      )} */}
 
       {/* Recommendation */}
       {recommendation && (

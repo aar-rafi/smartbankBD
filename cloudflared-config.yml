@@ -1,0 +1,12 @@
+tunnel: 21dcc113-ee6a-4dba-a45c-d68942724c7e
+credentials-file: /home/torr20/.cloudflared/21dcc113-ee6a-4dba-a45c-d68942724c7e.json
+
+ingress:
+  # IBBL Bank (main)
+  - hostname: smartbankbd.twiggle.tech
+    service: http://localhost:5000
+  # Sonali Bank  
+  - hostname: sonali-smartbankbd.twiggle.tech
+    service: http://localhost:5001
+  # Catch-all (Vite proxy handles /api -> localhost:3001)
+  - service: http_status:404

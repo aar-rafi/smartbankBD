@@ -24,7 +24,14 @@ import {
     Loader2
 } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Use same API URL pattern as other services
+const getApiUrl = () => {
+  if (window.location.hostname.includes('smartbankbd.twiggle.tech')) {
+    return ''; // Use relative path, Vite proxy will handle it
+  }
+  return 'http://localhost:3001';
+};
+const API_URL = getApiUrl();
 
 interface CustomerProfile {
     accountId: number;

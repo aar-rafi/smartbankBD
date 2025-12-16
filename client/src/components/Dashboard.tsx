@@ -14,6 +14,7 @@ import {
     deleteAllCheques as apiDeleteAllCheques
 } from '@/services/api';
 import ChequeDetailsView from './ChequeDetailsView';
+import BACHProcessingModal from './BACHProcessingModal';
 
 interface DashboardProps {
     currentBank: Bank | null;
@@ -26,6 +27,10 @@ const Dashboard: React.FC<DashboardProps> = ({ currentBank }) => {
     const [loading, setLoading] = useState(false);
     const [selectedChequeId, setSelectedChequeId] = useState<number | null>(null);
     const [sendingToBACH, setSendingToBACH] = useState<number | null>(null);
+    const [bachModalOpen, setBachModalOpen] = useState(false);
+    const [bachModalStep, setBachModalStep] = useState(0);
+    const [processingCheque, setProcessingCheque] = useState<BankCheque | null>(null);
+    const [bachPackageFiles, setBachPackageFiles] = useState<string[]>([]);
 
     const loadCheques = async () => {
         if (!currentBank) return;
@@ -45,6 +50,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentBank }) => {
     };
 
     useEffect(() => {
+        // Reset selected cheque when component mounts (e.g., when navigating back from details)
+        setSelectedChequeId(null);
         loadCheques();
         // Poll for updates every 5 seconds
         const interval = setInterval(loadCheques, 5000);
@@ -95,23 +102,52 @@ const Dashboard: React.FC<DashboardProps> = ({ currentBank }) => {
 
     const handleSendToBACH = async (e: React.MouseEvent, cheque: BankCheque) => {
         e.stopPropagation();
+        setProcessingCheque(cheque);
+        setBachModalOpen(true);
+        setBachModalStep(0);
         setSendingToBACH(cheque.cheque_id);
+
+        // Animate through steps
+        const steps = [
+            { delay: 800, step: 1 },   // Packaging
+            { delay: 1600, step: 2 },  // Encrypting
+            { delay: 2400, step: 3 },  // Signing
+            { delay: 3200, step: 4 },  // Transmitting
+        ];
+
+        for (const { delay, step } of steps) {
+            await new Promise(resolve => setTimeout(resolve, delay - (steps[step-2]?.delay || 0)));
+            setBachModalStep(step);
+        }
+
         try {
-            await apiSendToBACH(cheque.cheque_id);
+            const result = await apiSendToBACH(cheque.cheque_id);
+            setBachModalStep(5); // Complete
             
-            // Simulate BACH routing delay (2 seconds) then auto-forward to drawer bank
-            setTimeout(async () => {
-                try {
-                    await receiveAtDrawerBank(cheque.cheque_id);
-                } catch (err) {
-                    console.error('Error forwarding to drawer bank:', err);
-                }
-                loadCheques();
-                setSendingToBACH(null);
-            }, 2000);
+            // Store package files
+            if (result.bachPackage?.files) {
+                setBachPackageFiles(result.bachPackage.files);
+            }
+            
+            // Wait a moment then forward to drawer bank (but don't close modal)
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            try {
+                await receiveAtDrawerBank(cheque.cheque_id);
+            } catch (err) {
+                console.error('Error forwarding to drawer bank:', err);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            loadCheques();
+            setSendingToBACH(null);
+            // Don't auto-close - user clicks OK button
         } catch (error) {
             console.error('Error sending to BACH:', error);
+            setBachModalOpen(false);
             setSendingToBACH(null);
+            setProcessingCheque(null);
+            setBachPackageFiles([]);
         }
     };
 
@@ -315,6 +351,19 @@ const Dashboard: React.FC<DashboardProps> = ({ currentBank }) => {
                     )}
                 </CardContent>
             </Card>
+
+            {/* BACH Processing Modal */}
+            <BACHProcessingModal 
+                isOpen={bachModalOpen}
+                currentStep={bachModalStep}
+                cheque={processingCheque}
+                packageFiles={bachPackageFiles}
+                onClose={() => {
+                    setBachModalOpen(false);
+                    setProcessingCheque(null);
+                    setBachPackageFiles([]);
+                }}
+            />
         </div>
     );
 };

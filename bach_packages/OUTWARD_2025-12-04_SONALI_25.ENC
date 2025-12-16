@@ -1,0 +1,35 @@
+{
+  "package": "OUTWARD_2025-12-04_SONALI_25",
+  "version": "2.1",
+  "encryption": "AES-256-CBC",
+  "iv": "accddce401d4c105251659a3df2c3bfd",
+  "files": [
+    {
+      "name": "batch_header.dat",
+      "size": 29658,
+      "checksum": "f53f0e0e9dfc17a7c0072e0f81f67cfa"
+    },
+    {
+      "name": "items.dat",
+      "size": 12282,
+      "checksum": "de009af0dfa2a36cd88bf3b523c9b5b4"
+    },
+    {
+      "name": "images/IMG66753_FG.TIF",
+      "size": 43156,
+      "checksum": "37de7e599aa0706c4a3214d65d1f44c8"
+    },
+    {
+      "name": "images/IMG66753_FB.TIF",
+      "size": 29219,
+      "checksum": "a2442dd797a20bc47e4d13342a83fc34"
+    },
+    {
+      "name": "images/IMG66753_BB.TIF",
+      "size": 47474,
+      "checksum": "8e83bea8f2df78d393932a661b3916cf"
+    }
+  ],
+  "signature": "a0db5838279621bb933991afc63e25a4c88a23102f8361e667aa196d2b620955",
+  "timestamp": "2025-12-04T08:07:00.647Z"
+}

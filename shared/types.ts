@@ -124,4 +124,5 @@ export interface AnalysisState {
   fraudDetection: FraudDetectionResult | null;
   error: string | null;
   imagePreview: string | null;
+  backImagePreview: string | null;
 }

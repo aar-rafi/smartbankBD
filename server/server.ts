@@ -107,8 +107,8 @@ app.post('/api/cheques/:id/verify', async (req: Request, res: Response) => {
       signatureBox: null,
       micrCode: details.cheque.micr_code,
       extractedSignatureImage: extractedSignatureBase64,
-      synthIdConfidence: null,
-      isAiGenerated: false
+      synthIdConfidence: details.cheque.synth_id_confidence ? parseFloat(String(details.cheque.synth_id_confidence)) : null,
+      isAiGenerated: details.cheque.is_ai_generated || false
     };
 
     // Run deep verification

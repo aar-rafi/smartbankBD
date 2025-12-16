@@ -80,6 +80,7 @@ const AppContent: React.FC = () => {
     fraudDetection: null,
     error: null,
     imagePreview: null,
+    backImagePreview: null,
   });
 
   // Show login if not authenticated
@@ -91,14 +92,28 @@ const AppContent: React.FC = () => {
     setSteps(prev => prev.map(s => s.id === id ? { ...s, status } : s));
   };
 
-  const handleImageSelected = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64Data = e.target?.result as string;
+  const handleImagesSelected = async (frontFile: File, backFile: File) => {
+    // Read both files
+    const readFileAsBase64 = (file: File): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    };
+
+    try {
+      const [frontBase64, backBase64] = await Promise.all([
+        readFileAsBase64(frontFile),
+        readFileAsBase64(backFile)
+      ]);
+
       setState(prev => ({ 
         ...prev, 
         status: 'analyzing', 
-        imagePreview: base64Data, 
+        imagePreview: frontBase64, 
+        backImagePreview: backBase64,
         error: null, 
         data: null, 
         validation: null,
@@ -106,10 +121,13 @@ const AppContent: React.FC = () => {
       }));
       setSteps(prev => prev.map(s => s.id === 'data-package' ? { ...s, status: 'current' } : { ...s, status: 'pending' }));
 
+      // Process front image (the one that gets analyzed)
+      const base64Data = frontBase64;
+
       try {
         updateStepStatus('data-package', 'current');
         const base64Content = base64Data.split(',')[1];
-        let data = await analyzeChequeImage(base64Content, file.type);
+        let data = await analyzeChequeImage(base64Content, frontFile.type);
 
         if (data.hasSignature && data.signatureBox) {
           const extractedSig = await extractSignatureRegion(base64Data, data.signatureBox);
@@ -210,6 +228,9 @@ const AppContent: React.FC = () => {
               // Image paths for drawer bank verification
               chequeImagePath: data.chequeImagePath || undefined,
               signatureImagePath: data.signatureImagePath || undefined,
+              // SynthID results from real-time AI detection
+              synthIdConfidence: data.synthIdConfidence ?? null,
+              isAiGenerated: data.isAiGenerated || false,
               // Mark as failed if validation didn't pass
               validationFailed: !validationPassed,
               failureReasons: failureReasons || undefined,
@@ -269,8 +290,10 @@ const AppContent: React.FC = () => {
           return current ? prev.map(s => s.id === current.id ? { ...s, status: 'error' } : s) : prev;
         });
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (readErr) {
+      console.error('Error reading files:', readErr);
+      setState(prev => ({ ...prev, status: 'error', error: 'Failed to read image files' }));
+    }
   };
 
   const handleManualOverride = (approved: boolean) => {
@@ -293,7 +316,8 @@ const AppContent: React.FC = () => {
       validation: null, 
       fraudDetection: null,
       error: null, 
-      imagePreview: null 
+      imagePreview: null,
+      backImagePreview: null 
     });
     setSameBankWarning(null);
     setSteps(INITIAL_STEPS);
@@ -309,59 +333,62 @@ const AppContent: React.FC = () => {
       {/* Header */}
       <header className={cn("border-b sticky top-0 z-20", headerColor)}>
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="p-2 rounded-lg bg-white/20">
-              <Building2 className="h-6 w-6" />
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+            <div className="p-2 rounded-lg bg-white/20 shrink-0">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">{CURRENT_BANK.name}</h1>
-              <p className="text-xs opacity-80">SmartBankBD - BACH Clearing</p>
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-xl font-bold tracking-tight truncate">{CURRENT_BANK.name}</h1>
+              <p className="text-xs opacity-80 hidden sm:block">SmartBankBD - BACH Clearing</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            {/* Role Badge */}
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10">
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+            {/* Role Badge - Hidden on mobile */}
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-white/10">
               {isManager ? <Shield className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
               <span className="text-sm">{user.name}</span>
               <span className="text-xs opacity-70">({isManager ? 'Manager' : 'Employee'})</span>
             </div>
 
-            {/* Navigation - Only for employees */}
+            {/* Navigation - Only for employees - Hidden on mobile, show icons only */}
             {!isManager && (
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1 sm:space-x-2">
                 <Button 
                   variant={mode === 'dashboard' ? 'secondary' : 'ghost'} 
                   size="sm"
                   onClick={() => setMode('dashboard')}
                   className={mode === 'dashboard' ? '' : 'text-white/80 hover:text-white hover:bg-white/10'}
+                  title="Dashboard"
                 >
-                  <LayoutDashboard className="h-4 w-4 mr-2" />
-                  Dashboard
+                  <LayoutDashboard className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Dashboard</span>
                 </Button>
                 <Button 
                   variant={mode === 'scan' ? 'secondary' : 'ghost'} 
                   size="sm"
                   onClick={() => setMode('scan')}
                   className={mode === 'scan' ? '' : 'text-white/80 hover:text-white hover:bg-white/10'}
+                  title="Process Cheque"
                 >
-                  <ScanLine className="h-4 w-4 mr-2" />
-                  Process Cheque
+                  <ScanLine className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Process Cheque</span>
                 </Button>
                 <Button 
                   variant={mode === 'customers' ? 'secondary' : 'ghost'} 
                   size="sm"
                   onClick={() => setMode('customers')}
                   className={mode === 'customers' ? '' : 'text-white/80 hover:text-white hover:bg-white/10'}
+                  title="Customers"
                 >
-                  <Users className="h-4 w-4 mr-2" />
-                  Customers
+                  <Users className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Customers</span>
                 </Button>
               </div>
             )}
 
             {/* Logout */}
-            <Button variant="ghost" size="sm" onClick={logout} className="text-white/80 hover:text-white hover:bg-white/10">
+            <Button variant="ghost" size="sm" onClick={logout} className="text-white/80 hover:text-white hover:bg-white/10" title="Logout">
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
@@ -389,14 +416,14 @@ const AppContent: React.FC = () => {
                 <AlertTitle className="text-yellow-800 text-lg font-semibold">Manual Review Required</AlertTitle>
                 <AlertDescription className="mt-2">
                   <p className="text-yellow-700 mb-4">Signature verification inconclusive. Please verify manually.</p>
-                  <div className="flex gap-4">
+                  {/* <div className="flex gap-4">
                     <Button onClick={() => handleManualOverride(true)} className="bg-green-600 hover:bg-green-700 text-white">
                       <Check className="mr-2 h-4 w-4" /> Approve
                     </Button>
                     <Button onClick={() => handleManualOverride(false)} variant="destructive">
                       <X className="mr-2 h-4 w-4" /> Reject
                     </Button>
-                  </div>
+                  </div> */}
                 </AlertDescription>
               </Alert>
             )}
@@ -423,14 +450,16 @@ const AppContent: React.FC = () => {
               </Alert>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              <div className="lg:col-span-7 space-y-6">
+            <div className={`grid grid-cols-1 gap-8 items-start ${state.backImagePreview ? 'lg:grid-cols-12' : 'lg:grid-cols-1'}`}>
+              {/* Left Column - Front Side */}
+              <div className={state.backImagePreview ? 'lg:col-span-6 space-y-6' : 'space-y-6'}>
                 <Card>
                   <CardContent className="p-4">
                     {state.imagePreview ? (
                       <div className="space-y-4">
-                        <div className="relative w-full overflow-hidden rounded-lg border bg-muted">
-                          <img src={state.imagePreview} alt="Cheque" className="w-full h-auto object-contain max-h-[600px]" />
+                        <div className="relative overflow-hidden rounded-lg border bg-muted">
+                          <p className="absolute top-2 left-2 z-10 bg-black/60 text-white text-xs px-2 py-1 rounded">Front Side</p>
+                          <img src={state.imagePreview} alt="Cheque Front" className="w-full h-auto object-contain max-h-[600px]" />
                           {(state.status === 'analyzing' || state.status === 'validating') && (
                             <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center">
                               <Loader2 className="h-10 w-10 animate-spin text-primary mb-2" />
@@ -456,7 +485,7 @@ const AppContent: React.FC = () => {
                         )}
                       </div>
                     ) : (
-                      <ImageUploader onImageSelected={handleImageSelected} isLoading={state.status === 'analyzing' || state.status === 'validating'} />
+                      <ImageUploader onImagesSelected={handleImagesSelected} isLoading={state.status === 'analyzing' || state.status === 'validating'} />
                     )}
                   </CardContent>
                 </Card>
@@ -464,25 +493,37 @@ const AppContent: React.FC = () => {
                 {state.status === 'success' && state.data && (
                   <ExtractedDetails data={state.data} originalImage={state.imagePreview} onReset={resetAnalysis} />
                 )}
-
-                {/* Note: ML Fraud Detection is now shown on the cheque details page (drawer bank side), not here */}
               </div>
 
-              <div className="lg:col-span-5 space-y-6">
-                {state.status === 'error' && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Error</AlertTitle>
-                    <AlertDescription>
-                      <p>{state.error}</p>
-                      <Button variant="outline" size="sm" onClick={resetAnalysis} className="mt-3">Try Again</Button>
-                    </AlertDescription>
-                  </Alert>
-                )}
-                {state.status === 'success' && state.validation && (
-                  <ValidationChecklist result={state.validation} />
-                )}
-              </div>
+              {/* Right Column - Back Side (only show after upload) */}
+              {state.backImagePreview && (
+                <div className="lg:col-span-6 space-y-6">
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="relative overflow-hidden rounded-lg border bg-muted">
+                        <p className="absolute top-2 left-2 z-10 bg-black/60 text-white text-xs px-2 py-1 rounded">Back Side</p>
+                        <img src={state.backImagePreview} alt="Cheque Back" className="w-full h-auto object-contain max-h-[600px]" />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {state.status === 'error' && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Error</AlertTitle>
+                      <AlertDescription>
+                        <p>{state.error}</p>
+                        <Button variant="outline" size="sm" onClick={resetAnalysis} className="mt-3">Try Again</Button>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Validation Checklist Below Back Side Image */}
+                  {state.status === 'success' && state.validation && (
+                    <ValidationChecklist result={state.validation} />
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}

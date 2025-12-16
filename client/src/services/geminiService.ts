@@ -1,14 +1,32 @@
 import { ChequeData } from "../../../shared/types";
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Use relative /api path - Vite proxy handles forwarding to backend
+const API_URL = '';
 
-// Helper to compute SHA-256 hash of the image data
+// Helper to compute hash of the image data
+// Uses crypto.subtle if available (HTTPS), otherwise falls back to simple hash
 async function computeImageHash(base64Image: string): Promise<string> {
-  const msgBuffer = new TextEncoder().encode(base64Image);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  return hashHex;
+  // Check if crypto.subtle is available (requires secure context/HTTPS)
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const msgBuffer = new TextEncoder().encode(base64Image);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch (e) {
+      console.warn('crypto.subtle failed, using fallback hash');
+    }
+  }
+  
+  // Fallback: simple hash for non-secure contexts (HTTP)
+  let hash = 0;
+  const str = base64Image.slice(0, 10000); // Use first 10k chars for speed
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return `fallback_${Math.abs(hash).toString(16)}_${base64Image.length}`;
 }
 
 export const analyzeChequeImage = async (base64Image: string, mimeType: string): Promise<ChequeData> => {

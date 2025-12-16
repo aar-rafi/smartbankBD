@@ -23,7 +23,9 @@ import {
     Loader2,
     Trash2,
     Wallet,
-    BanknoteIcon
+    BanknoteIcon,
+    ChevronDown,
+    ChevronUp
 } from "lucide-react";
 import { ChequeDetails, fetchChequeDetails, updateChequeDecision, runDeepVerification, deleteCheque } from '@/services/api';
 import BACHPackage from './BACHPackage';
@@ -62,6 +64,7 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
     const [actionLoading, setActionLoading] = useState(false);
     const [verifying, setVerifying] = useState(false);
     const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
+    const [customerProfileExpanded, setCustomerProfileExpanded] = useState(false);
 
     useEffect(() => {
         loadDetails();
@@ -452,11 +455,103 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                         </Card>
                     )}
 
-                    {/* Customer Behaviour Profile - Drawer Bank Only */}
+                    {/* Customer Behaviour Profile - Drawer Bank Only - Collapsible */}
                     {isDrawerBank && cheque.drawer_account && (
-                        <CustomerProfileTable accountNumber={cheque.drawer_account} />
+                        <Card>
+                            <CardHeader 
+                                className="cursor-pointer hover:bg-muted/50 transition-colors"
+                                onClick={() => setCustomerProfileExpanded(!customerProfileExpanded)}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <User className="h-5 w-5 text-blue-500" />
+                                        <CardTitle>Customer Behaviour Profile</CardTitle>
+                                    </div>
+                                    {customerProfileExpanded ? (
+                                        <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                                    ) : (
+                                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                    )}
+                                </div>
+                                <CardDescription>View customer transaction patterns and risk assessment</CardDescription>
+                            </CardHeader>
+                            {customerProfileExpanded && (
+                                <CardContent>
+                                    <CustomerProfileTable accountNumber={cheque.drawer_account} />
+                                </CardContent>
+                            )}
+                        </Card>
                     )}
 
+                    {/* Initial Validation Results */}
+                    {validation && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Shield className="h-5 w-5 text-blue-500" />
+                                    Initial Validation (Presenting Bank)
+                                </CardTitle>
+                                <CardDescription>Automated checks performed at deposit</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                    <div className="p-3 rounded-lg border bg-muted/50">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            {validation.all_fields_present ? (
+                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                            ) : (
+                                                <XCircle className="h-4 w-4 text-red-500" />
+                                            )}
+                                            <span className="text-xs font-medium">Fields Present</span>
+                                        </div>
+                                        <p className="text-sm">{validation.all_fields_present ? 'All fields detected' : 'Missing fields'}</p>
+                                    </div>
+                                    <div className="p-3 rounded-lg border bg-muted/50">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            {validation.date_valid ? (
+                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                            ) : (
+                                                <XCircle className="h-4 w-4 text-red-500" />
+                                            )}
+                                            <span className="text-xs font-medium">Date Valid</span>
+                                        </div>
+                                        <p className="text-sm">{validation.date_valid ? 'Within validity' : 'Invalid date'}</p>
+                                    </div>
+                                    <div className="p-3 rounded-lg border bg-muted/50">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            {validation.micr_readable ? (
+                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                            ) : (
+                                                <XCircle className="h-4 w-4 text-red-500" />
+                                            )}
+                                            <span className="text-xs font-medium">MICR Code</span>
+                                        </div>
+                                        <p className="text-sm">{validation.micr_readable ? 'Readable' : 'Not readable'}</p>
+                                    </div>
+                                    {/* <div className="p-3 rounded-lg border bg-muted/50">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            {validation.amount_match ? (
+                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                            ) : (
+                                                <XCircle className="h-4 w-4 text-red-500" />
+                                            )}
+                                            <span className="text-xs font-medium">Amount Match</span>
+                                        </div>
+                                        <p className="text-sm">OCR: {formatCurrency(validation.ocr_amount)}</p>
+                                    </div> */}
+                                </div>
+                                {/* {validation.ocr_confidence && (
+                                    <div className="mt-4">
+                                        <div className="flex justify-between text-xs mb-1">
+                                            <span>OCR Confidence</span>
+                                            <span>{validation.ocr_confidence}%</span>
+                                        </div>
+                                        <Progress value={validation.ocr_confidence} className="h-2" />
+                                    </div>
+                                )} */}
+                            </CardContent>
+                        </Card>
+                    )}
                     {/* Run Verification Button - for drawer bank - MOVED TO TOP */}
                     {isDrawerBank && (cheque.status === 'at_drawer_bank' || cheque.status === 'clearing') && (
                         <Card className="border-indigo-200 bg-indigo-50/50">
@@ -494,71 +589,134 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                             </CardContent>
                         </Card>
                     )}
-
-                    {/* Initial Validation Results */}
-                    {validation && (
-                        <Card>
-                            <CardHeader>
+                    {/* Signature Verification - Right after Initial Validation */}
+                    {(verificationResult?.signatureData || (verification && verification.signature_score !== null && verification.signature_score !== undefined)) && (
+                        <Card className="border-purple-200">
+                            <CardHeader className="bg-purple-50/50">
                                 <CardTitle className="flex items-center gap-2">
-                                    <Shield className="h-5 w-5 text-blue-500" />
-                                    Initial Validation (Presenting Bank)
+                                    <Fingerprint className="h-5 w-5 text-purple-500" />
+                                    Signature Verification
                                 </CardTitle>
-                                <CardDescription>Automated checks performed at deposit</CardDescription>
+                                <CardDescription>AI-powered signature matching using Siamese Transformer Model</CardDescription>
                             </CardHeader>
-                            <CardContent>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div className="p-3 rounded-lg border bg-muted/50">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            {validation.all_fields_present ? (
-                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                            ) : (
-                                                <XCircle className="h-4 w-4 text-red-500" />
-                                            )}
-                                            <span className="text-xs font-medium">Fields Present</span>
+                            <CardContent className="pt-4 space-y-6">
+                                {/* Detailed Signature Comparison - Show if available */}
+                                {verificationResult?.signatureData && (
+                                    <div className="border-2 border-purple-300 rounded-lg p-4 bg-gradient-to-br from-purple-50 to-white">
+                                        <h4 className="text-sm font-bold flex items-center gap-2 mb-4">
+                                            <Fingerprint className="h-5 w-5 text-purple-600" />
+                                            AI Signature Verification (Siamese Transformer Model)
+                                        </h4>
+                                        
+                                        <div className="grid grid-cols-2 gap-4 mb-4">
+                                            {/* Extracted Signature */}
+                                            <div className="space-y-2">
+                                                <p className="text-xs font-semibold text-muted-foreground uppercase">
+                                                    Extracted from Cheque
+                                                </p>
+                                                <div className="bg-white rounded-lg border-2 border-gray-200 p-2 h-32 flex items-center justify-center">
+                                                    {verificationResult.signatureData.extracted ? (
+                                                        <img 
+                                                            src={`data:image/png;base64,${verificationResult.signatureData.extracted}`}
+                                                            alt="Extracted Signature"
+                                                            className="max-h-full max-w-full object-contain"
+                                                        />
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">No signature extracted</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Reference Signature */}
+                                            <div className="space-y-2">
+                                                <p className="text-xs font-semibold text-muted-foreground uppercase">
+                                                    Reference (On File)
+                                                </p>
+                                                <div className="bg-white rounded-lg border-2 border-gray-200 p-2 h-32 flex items-center justify-center">
+                                                    {verificationResult.signatureData.reference ? (
+                                                        <img 
+                                                            src={`data:image/png;base64,${verificationResult.signatureData.reference}`}
+                                                            alt="Reference Signature"
+                                                            className="max-h-full max-w-full object-contain"
+                                                        />
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">No reference on file</span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <p className="text-sm">{validation.all_fields_present ? 'All fields detected' : 'Missing fields'}</p>
+
+                                        {/* Match Score */}
+                                        {verificationResult.signatureData.matchScore !== undefined && (
+                                            <div className={`p-4 rounded-lg ${
+                                                verificationResult.signatureData.matchScore >= 70 
+                                                    ? 'bg-green-100 border-2 border-green-400' 
+                                                    : verificationResult.signatureData.matchScore >= 50 
+                                                    ? 'bg-yellow-100 border-2 border-yellow-400'
+                                                    : 'bg-red-100 border-2 border-red-400'
+                                            }`}>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        {verificationResult.signatureData.matchScore >= 70 ? (
+                                                            <CheckCircle2 className="h-6 w-6 text-green-600" />
+                                                        ) : verificationResult.signatureData.matchScore >= 50 ? (
+                                                            <AlertCircle className="h-6 w-6 text-yellow-600" />
+                                                        ) : (
+                                                            <XCircle className="h-6 w-6 text-red-600" />
+                                                        )}
+                                                        <span className="font-bold">
+                                                            {verificationResult.signatureData.matchScore >= 70 
+                                                                ? 'SIGNATURE MATCH' 
+                                                                : verificationResult.signatureData.matchScore >= 50 
+                                                                ? 'INCONCLUSIVE - Manual Review'
+                                                                : 'SIGNATURE MISMATCH'}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-3xl font-bold">
+                                                        {verificationResult.signatureData.matchScore.toFixed(1)}%
+                                                    </span>
+                                                </div>
+                                                <Progress 
+                                                    value={verificationResult.signatureData.matchScore} 
+                                                    className={`h-3 ${
+                                                        verificationResult.signatureData.matchScore >= 70 
+                                                            ? '[&>div]:bg-green-500' 
+                                                            : verificationResult.signatureData.matchScore >= 50 
+                                                            ? '[&>div]:bg-yellow-500'
+                                                            : '[&>div]:bg-red-500'
+                                                    }`}
+                                                />
+                                                <p className="text-xs text-muted-foreground mt-2">
+                                                    Verified using Siamese Transformer Neural Network with EfficientNet backbone.
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="p-3 rounded-lg border bg-muted/50">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            {validation.date_valid ? (
-                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                            ) : (
-                                                <XCircle className="h-4 w-4 text-red-500" />
-                                            )}
-                                            <span className="text-xs font-medium">Date Valid</span>
+                                )}
+                                
+                                {/* Simple signature score display if detailed comparison not available */}
+                                {!verificationResult?.signatureData && verification && verification.signature_score !== null && verification.signature_score !== undefined && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-4 rounded-lg border bg-gradient-to-br from-white to-purple-50">
+                                            <p className="text-xs text-muted-foreground mb-1">Match Score</p>
+                                            <div className="flex items-end gap-2">
+                                                <span className="text-3xl font-bold">{verification.signature_score || 0}</span>
+                                                <span className="text-muted-foreground mb-1">/ 100</span>
+                                            </div>
+                                            <Progress value={verification.signature_score || 0} className="h-2 mt-2" />
                                         </div>
-                                        <p className="text-sm">{validation.date_valid ? 'Within validity' : 'Invalid date'}</p>
-                                    </div>
-                                    <div className="p-3 rounded-lg border bg-muted/50">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            {validation.micr_readable ? (
-                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                            ) : (
-                                                <XCircle className="h-4 w-4 text-red-500" />
-                                            )}
-                                            <span className="text-xs font-medium">MICR Code</span>
+                                        <div className="p-4 rounded-lg border">
+                                            <p className="text-xs text-muted-foreground mb-1">Result</p>
+                                            <Badge className={
+                                                verification.signature_match === 'match' ? 'bg-green-100 text-green-800' :
+                                                verification.signature_match === 'no_match' ? 'bg-red-100 text-red-800' :
+                                                'bg-yellow-100 text-yellow-800'
+                                            }>
+                                                {verification.signature_match === 'match' ? 'Signature Matched' :
+                                                 verification.signature_match === 'no_match' ? 'Signature Mismatch' :
+                                                 'Inconclusive'}
+                                            </Badge>
                                         </div>
-                                        <p className="text-sm">{validation.micr_readable ? 'Readable' : 'Not readable'}</p>
-                                    </div>
-                                    <div className="p-3 rounded-lg border bg-muted/50">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            {validation.amount_match ? (
-                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                            ) : (
-                                                <XCircle className="h-4 w-4 text-red-500" />
-                                            )}
-                                            <span className="text-xs font-medium">Amount Match</span>
-                                        </div>
-                                        <p className="text-sm">OCR: {formatCurrency(validation.ocr_amount)}</p>
-                                    </div>
-                                </div>
-                                {validation.ocr_confidence && (
-                                    <div className="mt-4">
-                                        <div className="flex justify-between text-xs mb-1">
-                                            <span>OCR Confidence</span>
-                                            <span>{validation.ocr_confidence}%</span>
-                                        </div>
-                                        <Progress value={validation.ocr_confidence} className="h-2" />
                                     </div>
                                 )}
                             </CardContent>
@@ -585,36 +743,6 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                 <CardDescription>Machine learning analysis results</CardDescription>
                             </CardHeader>
                             <CardContent className="pt-4 space-y-6">
-                                {/* Signature Analysis */}
-                                <div>
-                                    <h4 className="text-sm font-semibold flex items-center gap-2 mb-3">
-                                        <Fingerprint className="h-4 w-4" />
-                                        Signature Verification
-                                    </h4>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="p-4 rounded-lg border bg-gradient-to-br from-white to-purple-50">
-                                            <p className="text-xs text-muted-foreground mb-1">Match Score</p>
-                                            <div className="flex items-end gap-2">
-                                                <span className="text-3xl font-bold">{verification.signature_score || 0}</span>
-                                                <span className="text-muted-foreground mb-1">/ 100</span>
-                                            </div>
-                                            <Progress value={verification.signature_score || 0} className="h-2 mt-2" />
-                                        </div>
-                                        <div className="p-4 rounded-lg border">
-                                            <p className="text-xs text-muted-foreground mb-1">Result</p>
-                                            <Badge className={
-                                                verification.signature_match === 'match' ? 'bg-green-100 text-green-800' :
-                                                verification.signature_match === 'no_match' ? 'bg-red-100 text-red-800' :
-                                                'bg-yellow-100 text-yellow-800'
-                                            }>
-                                                {verification.signature_match === 'match' ? 'Signature Matched' :
-                                                 verification.signature_match === 'no_match' ? 'Signature Mismatch' :
-                                                 'Inconclusive'}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                </div>
-
                                 {/* Fraud Risk Analysis */}
                                 <div>
                                     <h4 className="text-sm font-semibold flex items-center gap-2 mb-3">
@@ -751,99 +879,7 @@ const ChequeDetailsView: React.FC<ChequeDetailsViewProps> = ({ chequeId, current
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="pt-4 space-y-6">
-                                {/* Signature Comparison - THE MAIN FEATURE */}
-                                {verificationResult.signatureData && (
-                                    <div className="border-2 border-purple-300 rounded-lg p-4 bg-gradient-to-br from-purple-50 to-white">
-                                        <h4 className="text-sm font-bold flex items-center gap-2 mb-4">
-                                            <Fingerprint className="h-5 w-5 text-purple-600" />
-                                            AI Signature Verification (Siamese Transformer Model)
-                                        </h4>
-                                        
-                                        <div className="grid grid-cols-2 gap-4 mb-4">
-                                            {/* Extracted Signature */}
-                                            <div className="space-y-2">
-                                                <p className="text-xs font-semibold text-muted-foreground uppercase">
-                                                    Extracted from Cheque
-                                                </p>
-                                                <div className="bg-white rounded-lg border-2 border-gray-200 p-2 h-32 flex items-center justify-center">
-                                                    {verificationResult.signatureData.extracted ? (
-                                                        <img 
-                                                            src={`data:image/png;base64,${verificationResult.signatureData.extracted}`}
-                                                            alt="Extracted Signature"
-                                                            className="max-h-full max-w-full object-contain"
-                                                        />
-                                                    ) : (
-                                                        <span className="text-xs text-muted-foreground">No signature extracted</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            
-                                            {/* Reference Signature */}
-                                            <div className="space-y-2">
-                                                <p className="text-xs font-semibold text-muted-foreground uppercase">
-                                                    Reference (On File)
-                                                </p>
-                                                <div className="bg-white rounded-lg border-2 border-gray-200 p-2 h-32 flex items-center justify-center">
-                                                    {verificationResult.signatureData.reference ? (
-                                                        <img 
-                                                            src={`data:image/png;base64,${verificationResult.signatureData.reference}`}
-                                                            alt="Reference Signature"
-                                                            className="max-h-full max-w-full object-contain"
-                                                        />
-                                                    ) : (
-                                                        <span className="text-xs text-muted-foreground">No reference on file</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
 
-                                        {/* Match Score */}
-                                        {verificationResult.signatureData.matchScore !== undefined && (
-                                            <div className={`p-4 rounded-lg ${
-                                                verificationResult.signatureData.matchScore >= 70 
-                                                    ? 'bg-green-100 border-2 border-green-400' 
-                                                    : verificationResult.signatureData.matchScore >= 50 
-                                                    ? 'bg-yellow-100 border-2 border-yellow-400'
-                                                    : 'bg-red-100 border-2 border-red-400'
-                                            }`}>
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <div className="flex items-center gap-2">
-                                                        {verificationResult.signatureData.matchScore >= 70 ? (
-                                                            <CheckCircle2 className="h-6 w-6 text-green-600" />
-                                                        ) : verificationResult.signatureData.matchScore >= 50 ? (
-                                                            <AlertCircle className="h-6 w-6 text-yellow-600" />
-                                                        ) : (
-                                                            <XCircle className="h-6 w-6 text-red-600" />
-                                                        )}
-                                                        <span className="font-bold">
-                                                            {verificationResult.signatureData.matchScore >= 70 
-                                                                ? 'SIGNATURE MATCH' 
-                                                                : verificationResult.signatureData.matchScore >= 50 
-                                                                ? 'INCONCLUSIVE - Manual Review'
-                                                                : 'SIGNATURE MISMATCH'}
-                                                        </span>
-                                                    </div>
-                                                    <span className="text-3xl font-bold">
-                                                        {verificationResult.signatureData.matchScore.toFixed(1)}%
-                                                    </span>
-                                                </div>
-                                                <Progress 
-                                                    value={verificationResult.signatureData.matchScore} 
-                                                    className={`h-3 ${
-                                                        verificationResult.signatureData.matchScore >= 70 
-                                                            ? '[&>div]:bg-green-500' 
-                                                            : verificationResult.signatureData.matchScore >= 50 
-                                                            ? '[&>div]:bg-yellow-500'
-                                                            : '[&>div]:bg-red-500'
-                                                    }`}
-                                                />
-                                                <p className="text-xs mt-2 text-muted-foreground">
-                                                    Verified using Siamese Transformer Neural Network with EfficientNet backbone
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
 
                                 {/* Other Verification Rules */}
                                 <div className="space-y-2">

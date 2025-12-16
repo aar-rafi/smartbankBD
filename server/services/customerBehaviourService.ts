@@ -5,7 +5,7 @@
  * Updates customer profiles based on transaction history.
  */
 
-import pool from './db.js';
+import pool from '../database/pool.js';
 
 // ============================================================
 // TYPES
@@ -222,6 +222,104 @@ export async function getCustomerProfile(accountNumber: string): Promise<Custome
     if (accountResult.rows.length === 0) return null;
     const account = accountResult.rows[0];
 
+    // Try to get pre-computed profile from customer_profiles table first
+    const profileResult = await pool.query(
+      `SELECT * FROM customer_profiles WHERE account_id = $1`,
+      [account.account_id]
+    );
+
+    // If profile exists in database, use it (but still compute some dynamic fields)
+    if (profileResult.rows.length > 0) {
+      const profile = profileResult.rows[0];
+      
+      // Get top payees and other dynamic data
+      const payeeResult = await pool.query(
+        `SELECT 
+          payee_name, 
+          COUNT(*) as count,
+          SUM(amount) as total_amount
+         FROM cheques 
+         WHERE drawer_account_id = $1 AND payee_name IS NOT NULL
+         GROUP BY payee_name
+         ORDER BY count DESC
+         LIMIT 5`,
+        [account.account_id]
+      );
+
+      // Get velocity metrics (recent activity)
+      const velocityResult = await pool.query(
+        `SELECT 
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') as txn_24h,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') as txn_7d,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') as txn_30d,
+          COALESCE(SUM(amount) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'), 0) as amt_24h,
+          COALESCE(SUM(amount) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days'), 0) as amt_7d,
+          COALESCE(SUM(amount) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days'), 0) as amt_30d
+         FROM cheques 
+         WHERE drawer_account_id = $1`,
+        [account.account_id]
+      );
+      const velocity = velocityResult.rows[0];
+
+      // Parse arrays from database
+      const usualDays = profile.usual_days_of_week || [];
+      const usualHours = profile.usual_hours || [];
+      const regularPayees = profile.regular_payees || [];
+
+      return {
+        accountId: account.account_id,
+        accountNumber: account.account_number,
+        holderName: account.holder_name,
+        bankName: account.bank_name,
+        accountType: account.account_type,
+        accountStatus: account.status,
+        balance: parseFloat(account.balance),
+        accountAgeDays: Math.floor(account.account_age_days || 0),
+        createdAt: account.created_at,
+        
+        totalTransactions: profile.total_transaction_count || 0,
+        totalAmount: (profile.avg_transaction_amt || 0) * (profile.total_transaction_count || 0),
+        avgTransactionAmount: parseFloat(profile.avg_transaction_amt || 0),
+        maxTransactionAmount: parseFloat(profile.max_transaction_amt || 0),
+        minTransactionAmount: parseFloat(profile.min_transaction_amt || 0),
+        stdDevAmount: parseFloat(profile.stddev_transaction_amt || 0),
+        
+        totalCheques: profile.total_cheques_issued || 0,
+        approvedCheques: 0, // Will be computed if needed
+        rejectedCheques: 0,
+        bouncedCheques: profile.bounced_cheques_count || 0,
+        bounceRate: parseFloat(profile.bounce_rate || 0),
+        
+        uniquePayees: profile.unique_payee_count || 0,
+        topPayees: payeeResult.rows.map((r: any) => ({
+          name: r.payee_name,
+          count: parseInt(r.count),
+          totalAmount: parseFloat(r.total_amount)
+        })),
+        
+        preferredDays: usualDays.map((dayNum: number) => {
+          const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+          return { day: days[dayNum], count: 1 }; // Simplified
+        }),
+        preferredHours: usualHours.map((hour: number) => ({ hour, count: 1 })), // Simplified
+        weekendTransactions: 0, // Can be computed if needed
+        nightTransactions: 0,
+        
+        transactionsLast24h: parseInt(velocity.txn_24h),
+        transactionsLast7d: parseInt(velocity.txn_7d),
+        transactionsLast30d: parseInt(velocity.txn_30d),
+        amountLast24h: parseFloat(velocity.amt_24h),
+        amountLast7d: parseFloat(velocity.amt_7d),
+        amountLast30d: parseFloat(velocity.amt_30d),
+        daysSinceLastTransaction: profile.days_since_last_activity || 0,
+        
+        riskScore: parseFloat(profile.risk_score || 50),
+        riskLevel: (profile.risk_category || 'medium') as 'low' | 'medium' | 'high' | 'critical',
+        riskFactors: [] // Can be parsed from behavior_vector if needed
+      };
+    }
+
+    // Fallback: Compute profile dynamically if not in database
     // Get transaction statistics
     const statsResult = await pool.query(
       `SELECT 
